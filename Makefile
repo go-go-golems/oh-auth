@@ -1,4 +1,4 @@
-.PHONY: lint lintmax fmt-check gosec govulncheck test build ci-check tag-major tag-minor tag-patch smoke-final
+.PHONY: lint lintmax fmt-check gosec govulncheck test build ci-check tag-major tag-minor tag-patch release smoke-final
 
 lint:
 	GOWORK=off golangci-lint run -v
@@ -33,6 +33,10 @@ tag-minor:
 
 tag-patch:
 	git tag $(shell svu patch)
+
+release:
+	git push origin --tags
+	GOWORK=off GOPROXY=proxy.golang.org go list -m github.com/go-go-golems/oh-auth@$(shell svu current)
 
 # Deployed validation is intentionally a single release-candidate gate.
 # The final orchestrator will be added with the integration smoke phase.
