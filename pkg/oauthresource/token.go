@@ -14,7 +14,11 @@ type Verifier interface {
 }
 
 func BearerToken(r *http.Request) (string, error) {
-	value := r.Header.Get("Authorization")
+	values := r.Header.Values("Authorization")
+	if len(values) != 1 {
+		return "", errors.New("bearer token is missing")
+	}
+	value := values[0]
 	parts := strings.Fields(value)
 	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") || parts[1] == "" || strings.ContainsAny(parts[1], "\r\n") {
 		return "", errors.New("bearer token is missing")

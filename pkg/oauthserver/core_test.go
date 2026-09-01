@@ -3,6 +3,7 @@ package oauthserver_test
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"net/url"
 	"strings"
 	"testing"
@@ -68,7 +69,8 @@ func TestEngineOAuthLifecycle(t *testing.T) {
 	principal := oauthserver.Principal[struct{}]{Subject: oauthserver.Subject("employee-1"), DisplayName: "Employee", Email: "employee@example.test"}
 	revalidator := &memorytest.Revalidator[struct{}]{Result: oauthserver.Revalidation[struct{}]{Status: oauthserver.RevalidationEligible, Principal: principal}}
 	audit := &auditRecorder{}
-	engine, err := oauthserver.New(config, oauthserver.Dependencies[struct{}]{Store: store, Resources: resources, Scopes: memorytest.ScopePolicy[struct{}]{Available: scopes}, Revalidator: revalidator, Tokens: &memorytest.TokenService[struct{}]{Issuer: config.Issuer}, Secrets: secrets, Clock: clock, Audit: audit})
+	tokenService := &memorytest.TokenService[struct{}]{Issuer: config.Issuer}
+	engine, err := oauthserver.New(config, oauthserver.Dependencies[struct{}]{Store: store, Resources: resources, Scopes: memorytest.ScopePolicy[struct{}]{Available: scopes}, Revalidator: revalidator, Tokens: tokenService, Secrets: secrets, Clock: clock, Audit: audit})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,6 +111,12 @@ func TestEngineOAuthLifecycle(t *testing.T) {
 	if _, err := engine.ExchangeCode(ctx, oauthserver.ExchangeCodeInput{Code: code, ClientID: string(registered.Client.ID), RedirectURI: string(registered.Client.RedirectURIs[0]), CodeVerifier: strings.Repeat("x", 43)}); err == nil {
 		t.Fatal("wrong verifier accepted")
 	}
+	tokenFailure := errors.New("signer unavailable")
+	tokenService.Err = tokenFailure
+	if _, err := engine.ExchangeCode(ctx, oauthserver.ExchangeCodeInput{Code: code, ClientID: string(registered.Client.ID), RedirectURI: string(registered.Client.RedirectURIs[0]), CodeVerifier: verifier}); !errors.Is(err, tokenFailure) {
+		t.Fatalf("token failure = %v", err)
+	}
+	tokenService.Err = nil
 	tokens, err := engine.ExchangeCode(ctx, oauthserver.ExchangeCodeInput{Code: code, ClientID: string(registered.Client.ID), RedirectURI: string(registered.Client.RedirectURIs[0]), CodeVerifier: verifier})
 	if err != nil {
 		t.Fatal(err)

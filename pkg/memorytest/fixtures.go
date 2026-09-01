@@ -66,11 +66,15 @@ func (r Revalidator[A]) Revalidate(context.Context, oauthserver.Subject) (oauths
 
 type TokenService[A any] struct {
 	Issuer string
+	Err    error
 	next   uint64
 }
 
 func (t *TokenService[A]) TokenIssuer() string { return t.Issuer }
 func (t *TokenService[A]) IssueAccessToken(_ context.Context, grant oauthserver.AccessGrant[A]) (oauthserver.IssuedAccessToken, error) {
+	if t.Err != nil {
+		return oauthserver.IssuedAccessToken{}, t.Err
+	}
 	t.next++
 	return oauthserver.IssuedAccessToken{Value: fmt.Sprintf("access-%d", t.next), TokenType: "Bearer", ExpiresAt: grant.ExpiresAt}, nil
 }
