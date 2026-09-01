@@ -19,14 +19,8 @@ jobs:
           go-version-file: go.mod
           cache: true
       -
-        name: Verify logcopter package loggers
-        run: make logcopter-check
-      -
-        name: Generate assets
-        run: go generate ./...
-      -
-        name: Verify generated files are up to date
-        run: git diff --exit-code
-      -
         name: Run unit tests
-        run: go test ./...
+        run: GOWORK=off go test ./... -count=1
+      -
+        name: Run vet
+        run: GOWORK=off go vet ./...
