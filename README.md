@@ -34,9 +34,13 @@ The deployed end-to-end smoke test is a single final release-candidate gate and 
 ## Security boundaries
 
 - OAuth credentials are opaque and stored only as digests by durable stores.
+- Issuers are HTTPS origins (no path prefix); loopback HTTP is limited to redirect/resource development URLs.
+- Unverified dynamic clients have a bounded idle lease and remain protected while live OAuth state references them.
+- Active refresh-family admission is separate from bounded per-family replay history.
 - Every grant and token is bound to one exact resource URL.
 - PKCE S256 and exact redirect matching are mandatory for public clients.
 - Application policy can narrow authority but cannot expand a grant.
 - Secrets must be supplied through application configuration, never command-line arguments, logs, or committed files.
+- The transport publishes OAuth authorization-server metadata only; it does not claim OpenID Connect support.
 
 See the OH-AUTH-001 design and diary under `ttmp/` for the complete implementation contract and evidence.

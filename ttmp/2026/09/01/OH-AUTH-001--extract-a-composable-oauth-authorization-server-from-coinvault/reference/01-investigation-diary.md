@@ -1315,3 +1315,93 @@ HTTP and JWT hardening stayed focused on protocol-visible ambiguity: typed trust
 
 - The SQLite schema remains version 1; startup now rejects zero, duplicate, or unsupported version rows rather than proceeding ambiguously.
 - `application/x-www-form-urlencoded; charset=UTF-8` is accepted through standards-based media-type parsing.
+
+## Step 17: Add conformance, consume the final library, and stop at the shipping boundary
+
+This phase added the deterministic evidence that was missing from the original implementation: one complete local HTTP flow, shared memory/SQLite behavior, resource-server helpers, parser fuzzing, signer-failure retry, and a real CoinVault GEC-backed flow. It then used exact-head Codex rounds to find and close remaining authority/lifecycle issues without adding deployed smoke tests.
+
+The review loop was stopped deliberately when findings moved from security and operational correctness to optional HTTP response categorization. The final low-cost correctness issue—refresh digest collision behavior in the memory reference store—was fixed and pushed; 413/415 categorization was reverted as non-blocking polish.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 14)
+
+**Assistant interpretation:** Finish only deterministic conformance and consumer gates needed to ship, use review feedback for real authority/lifecycle defects, and stop before marginal protocol polish expands scope.
+
+**Inferred user intent:** Produce a trustworthy release candidate now, with explicit evidence and no endless automated-review or smoke-test loop.
+
+**Commits (code):** `87d5db23` — "test: add OAuth conformance and complete HTTP flow"; `92d75d6d` — "fix: revoke refresh replay before external work"; `dd12cea5` — "fix: align client lifecycle and OAuth metadata"; `4b96e186` — "fix: separate refresh admission from replay history"; `2dedffa4` — "fix: complete registration and consent contracts"; `c0544d83` — "fix: reject refresh digest collisions in memory store". CoinVault consumer commits: `1e4c4c6`, `00307b2`, and final pin `a1bc163`.
+
+### What I did
+
+- Added shared memory/SQLite conformance for expiry admission, invalid-binding retry, and concurrent final capacity.
+- Added complete HTTP DCR, authorization, callback, consent, code, refresh, revoke, and revoked-refresh coverage.
+- Added oauthresource bearer, metadata, challenge, duplicate-header, and exact-resource tests.
+- Added a bounded parser fuzz target and signer-failure retry proof.
+- Added a complete GEC-backed CoinVault provider flow and pinned published oh-auth pseudo-versions with `GOWORK=off`.
+- Revoked consumed refresh replay before all fallible external adapters.
+- Preserved idle clients referenced by authorization, consent, code, or refresh state.
+- Removed unsupported OpenID discovery and advertised token authentication method `none`.
+- Separated active refresh-family admission from retained replay rows and bounded generations per family.
+- Corrected SQLite envelope JSON paths for consent, code, and refresh expiry indexes/pruning.
+- Made DCR extension-tolerant under the existing body bound and added a dedicated client-ID secret method.
+- Carried the consent-disclosed authorization end through code exchange to refresh expiry.
+- Added refresh digest collision rejection before memory-store predecessor mutation.
+- Updated the senior review with the post-remediation outcome and explicit stop rule.
+
+### Why
+
+- Conformance must compare the reference fake and durable adapter; package-local happy paths had allowed them to drift.
+- Active-family capacity and retained replay evidence are different resources and cannot share one row-count quota.
+- Shipping requires a stop rule: authority, persistence, lifecycle, and interoperability defects block; optional response polish does not.
+
+### What worked
+
+- All oh-auth normal, race, vet, lint, GoSec, govulncheck, and bounded fuzz gates passed.
+- Fuzzing executed 40,986 cases in six seconds and found no parser crash.
+- Direct coverage increased from 48.8% to 59.2%; HTTP reached 72.7%, oauthresource 66.7%, oauthserver 67.7%, SQLite 64.2%, and JWT 78.6%.
+- CoinVault `GOWORK=off` tests/vet and the full pre-push build, lint, GoSec, govulncheck, and test suite passed.
+- The database boundary probe reports no raw transaction/consent credentials and visible client touches.
+- Both repositories were pushed after their validation hooks passed.
+
+### What didn't work
+
+- The first post-conformance exact-head review found that consumed refresh replay could exit during revalidation before durable family revocation; the replay check moved ahead of every external dependency.
+- Subsequent reviews found active refresh rows coupled to retained generations and missing consent/code client-liveness references. The lifecycle model was corrected rather than raising quotas.
+- The final review suggested distinct 413/415 statuses and digest-collision consistency. The status work was started but intentionally reverted after the user confirmed diminishing returns; the collision fix was retained.
+
+### What I learned
+
+- Exact-head review was valuable while it found authority/lifecycle defects, but a severity- and invariant-based stop condition is necessary for shipping.
+- SQLite envelope tags must be reflected in every JSON extraction path; tests now cover consent, code, and refresh pruning paths directly.
+- A disclosed authorization deadline must become stored grant data, not be recomputed from another state's TTL.
+
+### What was tricky to build
+
+- Replay history must remain available for detection without counting every consumed generation as a new active grant. Active current rows now determine admission, while a per-family generation cap bounds history and revokes only that family at the limit.
+- Client eviction must account for state across four differently shaped JSON envelopes. Each live stage now participates in the exclusion, with parallel memory semantics.
+
+### What warrants a second pair of eyes
+
+- Review the default `MaxRefreshGenerations` value (16,384) against expected access-token refresh cadence and 30-day family lifetime.
+- Review the deliberate decision to return bounded OAuth `400 invalid_request` rather than distinguish optional 413/415 transport statuses.
+- Confirm final CoinVault pseudo-version `c0544d83` is the intended release candidate dependency.
+
+### What should be done in the future
+
+- Complete the separate RAG audience-isolation ticket phase.
+- Run the already planned single final deployed smoke only after release-candidate deployment; do not add intermediate smoke runs.
+- Treat future protocol polish as ordinary backlog unless it changes authority, durability, availability, or target-client interoperability.
+
+### Code review instructions
+
+- Start with `store_conformance_test.go`, `flow_test.go`, and CoinVault `provider_test.go` to understand the executable contract.
+- Review refresh replay ordering, active-family admission, generation bound, and client-liveness SQL.
+- Validate with normal/race/vet/lint/GoSec/govulncheck and the bounded fuzz command recorded below.
+
+### Technical details
+
+- Final oh-auth code head: `c0544d83ba28c956c8c450702b58362a2bcec658`.
+- Final CoinVault consumer head: `a1bc163`.
+- Bounded fuzz command: `GOWORK=off go test ./pkg/oauthserver -run='^$' -fuzz=FuzzOAuthValueParsers -fuzztime=5s`.
+- No deployed smoke was added or executed.

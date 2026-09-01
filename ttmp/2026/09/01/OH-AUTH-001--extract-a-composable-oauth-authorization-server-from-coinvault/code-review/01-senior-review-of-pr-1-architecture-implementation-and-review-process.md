@@ -1300,7 +1300,42 @@ The next developer should start with these files in order:
 4. `pkg/httptransport/server.go` — registration admission, issuer route policy, Location removal, and strict parameter handling.
 5. shared conformance/fault-injection tests before returning to RAG or deployment work.
 
-## 26. References
+## 26. Post-review implementation outcome
+
+The senior review was followed by five implementation phases and focused exact-head review rounds. The merge recommendation in Section 3 described the pre-remediation branch; the implementation now closes the named security and correctness blockers while intentionally avoiding a larger runtime framework, path-prefix subsystem, registration-management protocol, post-expiry retention system, or deployed smoke expansion.
+
+### 26.1 Closed findings
+
+- Dynamic clients have a recoverable idle lease and are preserved while any live authorization, consent, code, or refresh state references them.
+- Active refresh-family admission is separate from retained replay generations; each family has an explicit generation bound.
+- Ineligibility and replay revocation failures propagate as temporary errors rather than false durable success.
+- Consumed-token replay is revoked before external revalidation, policy, signing, or secret generation.
+- Transaction and consent handles are omitted from durable payloads and verified by database-byte tests.
+- Memory and SQLite use injected clocks, protocol-expiry pruning, transition validators, collision checks, and shared conformance cases.
+- Issuers are explicitly origin-only; registration no longer advertises nonexistent management.
+- OAuth discovery no longer claims OIDC and advertises token authentication method `none`.
+- DCR safely ignores bounded extension metadata and uses a dedicated client-ID generator.
+- Consent discloses an authorization deadline that is carried through the code into refresh expiry.
+- HTTP parsing rejects duplicate scalar bindings and query/body ambiguity while remaining media-type interoperable.
+- Engine, HTTP, token, registry, clock, JWT key, schema version, and audit contracts are coherent and tested.
+- CoinVault completes a GEC-backed registration, authorization, callback, consent, code, JWT validation flow against the published pseudo-version.
+
+### 26.2 Deterministic evidence
+
+- normal tests, race tests, vet, golangci-lint, GoSec, govulncheck, and a bounded parser fuzz run pass;
+- the complete HTTP authorization-code/refresh/revoke flow runs under `httptest`;
+- shared memory/SQLite conformance covers expiry admission, invalid-binding retry, and concurrent final capacity;
+- direct statement coverage increased from 48.8% to 59.2%, with HTTP at 72.7% and oauthresource at 66.7%;
+- CoinVault passes its full pre-push build, lint, security, vulnerability, and test suite with the hardened dependency;
+- no deployed smoke test was added or run.
+
+### 26.3 Deliberate stop rule
+
+Repeated broad review reached diminishing returns after authority, persistence, lifecycle, replay, and interoperability invariants were covered. One final reviewed suggestion—distinct HTTP 413/415 responses instead of the existing bounded OAuth `400 invalid_request` response—was classified as optional response polish, not a security or functional blocker. The low-cost refresh-digest collision found in the same review was fixed in `c0544d83` and tested in both code-exchange and rotation paths. No further broad automated review was requested, per the shipping decision.
+
+Remaining ticket phases are product integration work rather than PR #1 library blockers: independent RAG audience isolation and the previously planned final deployed acceptance smoke.
+
+## 27. References
 
 - [oh-auth PR #1](https://github.com/go-go-golems/oh-auth/pull/1)
 - `sources/github/pr-1-review-comments.json`

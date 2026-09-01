@@ -158,3 +158,14 @@ Step 16: Unified engine/HTTP runtime configuration and hardened trusted redirect
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/httptransport/server.go — Single-source runtime and strict protocol parsing
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/jwttokens/service.go — Reusable RSA key safeguards
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/oauthserver/engine.go — Configuration coherence trusted redirects and audit
+
+## 2026-09-01
+
+Step 17: Added deterministic store/HTTP/resource/fuzz conformance, closed remaining refresh replay/lifecycle/admission/registration/consent defects, pinned CoinVault to final oh-auth c0544d83, and stopped the broad review loop at optional HTTP status polish.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../coinvault/internal/mcpoauth/provider_test.go — GEC-backed consumer integration
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/httptransport/flow_test.go — Complete local OAuth flow without deployed smoke
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/memorytest/store.go — Final refresh digest collision consistency
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/oauthserver/store_conformance_test.go — Shared memory and SQLite executable contract
