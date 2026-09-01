@@ -486,10 +486,14 @@ func pruneTx(ctx context.Context, tx *sql.Tx, _ oauthserver.StatePolicy, now tim
 	var stats oauthserver.PruneStats
 	cutoff := now.UTC().Format(time.RFC3339Nano)
 	for _, item := range []struct {
-		table  string
+		query  string
 		target *int
-	}{{"oauth_authorizations", &stats.Authorizations}, {"oauth_consents", &stats.Consents}, {"oauth_codes", &stats.Codes}} {
-		result, err := tx.ExecContext(ctx, "DELETE FROM "+item.table+" WHERE json_extract(payload, '$.ExpiresAt') <= ?", cutoff)
+	}{
+		{"DELETE FROM oauth_authorizations WHERE json_extract(payload, '$.ExpiresAt') <= ?", &stats.Authorizations},
+		{"DELETE FROM oauth_consents WHERE json_extract(payload, '$.ExpiresAt') <= ?", &stats.Consents},
+		{"DELETE FROM oauth_codes WHERE json_extract(payload, '$.ExpiresAt') <= ?", &stats.Codes},
+	} {
+		result, err := tx.ExecContext(ctx, item.query, cutoff)
 		if err != nil {
 			return stats, err
 		}
