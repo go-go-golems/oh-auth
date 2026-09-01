@@ -71,7 +71,7 @@ type ConsentSession[A any] struct {
 	Client        ConsentClientSnapshot
 	State         string
 	PKCEChallenge PKCEChallenge
-	Principal     Principal[A]
+	Principal     Principal[A] `json:"-"`
 	AllowedScopes ScopeSet
 	Resource      ResourceID
 	ExpiresAt     time.Time
@@ -83,7 +83,7 @@ type AuthorizationCodeRecord[A any] struct {
 	ClientID      ClientID
 	RedirectURI   RedirectURI
 	PKCEChallenge PKCEChallenge
-	Principal     Principal[A]
+	Principal     Principal[A] `json:"-"`
 	Scopes        ScopeSet
 	Resource      ResourceID
 	State         string
@@ -96,7 +96,7 @@ type RefreshGrant[A any] struct {
 	FamilyID   RefreshFamilyID
 	Generation uint64
 	ClientID   ClientID
-	Principal  Principal[A]
+	Principal  Principal[A] `json:"-"`
 	Scopes     ScopeSet
 	Resource   ResourceID
 	ExpiresAt  time.Time

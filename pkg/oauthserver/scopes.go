@@ -1,6 +1,7 @@
 package oauthserver
 
 import (
+	"encoding/json"
 	"sort"
 	"strings"
 )
@@ -76,6 +77,27 @@ func (s ScopeSet) Intersect(other ScopeSet) ScopeSet {
 
 func (s ScopeSet) IsSubsetOf(other ScopeSet) bool {
 	return len(s.Intersect(other).values) == len(s.values)
+}
+
+func (s ScopeSet) MarshalJSON() ([]byte, error) {
+	values := make([]string, len(s.values))
+	for i, value := range s.values {
+		values[i] = string(value)
+	}
+	return json.Marshal(values)
+}
+
+func (s *ScopeSet) UnmarshalJSON(data []byte) error {
+	var values []string
+	if err := json.Unmarshal(data, &values); err != nil {
+		return err
+	}
+	parsed, err := ParseScopes(strings.Join(values, " "))
+	if err != nil {
+		return err
+	}
+	*s = parsed
+	return nil
 }
 
 func (s ScopeSet) String() string {
