@@ -14,6 +14,10 @@ Owners: []
 RelatedFiles:
     - Path: repo://go.mod
       Note: Repository normalization evidence and preserved user toolchain edit
+    - Path: repo://ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/scripts/01-download-owasp-sources.sh
+      Note: Reproducible OWASP source download and checksum workflow
+    - Path: repo://ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/sources/owasp/README.md
+      Note: Evidence manifest used for the OWASP review
     - Path: ws://coinvault/internal/mcpoauth/provider.go
       Note: Main evidence for concern coupling and transition extraction
     - Path: ws://coinvault/internal/mcpoauth/store.go
@@ -24,6 +28,7 @@ LastUpdated: 2026-09-01T15:40:00-04:00
 WhatFor: Preserve how the extraction boundary and composable API were derived from CoinVault, go-go-mcp, the review hardenings, and the new repository.
 WhenToUse: Read before implementing or resuming OH-AUTH-001.
 ---
+
 
 
 # Diary
@@ -190,3 +195,146 @@ The source Markdown remains canonical in `oh-auth/ttmp`; the PDF is a review cop
 - Remote directory: `/ai/2026/09/01/OH-AUTH-001`.
 - Bundle inputs: extraction design and investigation diary.
 - Bundle ToC depth: 2.
+
+## Step 3: Review the architecture against OWASP
+
+This step downloaded a focused OWASP corpus into the ticket, compared the design against ASVS 5.0 OAuth/OIDC requirements and supporting cheat sheets/testing guidance, and amended both the architecture and implementation plan. The original design was strong on exact audiences, scope narrowing, PKCE, refresh rotation, bounded storage, and explicit transitions, but it did not fully cover authorization-code replay revocation, user-managed grants/consents, consent CSRF/clickjacking, authentication context, or fixed JWT trust material.
+
+The amended design targets applicable ASVS Level 2 behavior and records Level 3 DPoP/mTLS/PAR/confidential-client requirements as an explicit unsupported high-assurance profile. It introduces durable grant IDs/versions so code replay, user revocation, and scope reduction share one composable status mechanism.
+
+### Prompt Context
+
+**User prompt (verbatim):** "can you run this design doc against the OWASP guidelines, downloading them to the sources/ folder of the ticket, and amending the design doc appropriately, and adding links to relevant OWASP docs and sections"
+
+**Assistant interpretation:** Download authoritative OWASP material into the ticket, perform a requirement-by-requirement security review, update the design where controls are absent or ambiguous, and add precise web and local-source references.
+
+**Inferred user intent:** Make OWASP evidence and verification requirements part of the implementation contract before code is extracted into the reusable library.
+
+### What I did
+
+- Searched current official OWASP sources for OAuth, ASVS, resource-server, consent, JWT, workflow, logging, input, and resource-exhaustion guidance.
+- Added and ran `scripts/01-download-owasp-sources.sh`.
+- Downloaded 17 OWASP documents plus a local manifest into `sources/owasp/` and generated `SHA256SUMS`.
+- Reviewed ASVS V10.1, V10.2, V10.3, V10.4, and V10.7 requirement tables.
+- Reviewed OAuth2, Authorization, REST Security, JWT, Key/Secrets Management, Logging, Input Validation, CSRF, CSP, HTTP Headers, Transaction Authorization, Authorization Regression Testing, API4:2023, and WSTG OAuth guidance.
+- Added an OWASP crosswalk, assurance target, source links, residual risks, and verification matrix to the design.
+- Amended core principal, grant, code, refresh, consent, store, JWT, resource-verifier, HTTP, audit, configuration, phases, tests, checklist, and definition-of-done sections.
+
+### Why
+
+- A reusable authorization library needs a verifiable security baseline, not only locally reasoned invariants.
+- Several OWASP requirements connect concerns that the original design treated separately: code replay and user revocation both need a durable authorization-grant revocation unit.
+- Separate MCP/RAG processes need grant-status propagation if access tokens must become invalid before JWT expiry.
+
+### What worked
+
+- The original exact-resource and scope-intersection model maps directly to ASVS V10.3.1, V10.3.2, V10.4.11, and the OAuth2 privilege-restriction guidance.
+- Mandatory S256 PKCE, one-minute codes, code-only response type, and refresh rotation align with ASVS V10.4.3–V10.4.6.
+- The three prior review designs align with ASVS V10.4.7 and OWASP API4.
+- Transition-oriented APIs align strongly with OWASP REST workflow-state and Transaction Authorization guidance.
+
+### What didn't work
+
+- N/A. All official source downloads, Defuddle extraction, checksum generation, and design edits completed successfully.
+
+### What I learned
+
+- ASVS 10.4.2 requires a correctly bound replayed authorization code to revoke tokens already issued from that code, not only reject the replay.
+- ASVS 10.4.9 and 10.7.3 require users to review and revoke grants/consents; narrowing scopes is a natural monotonic extension.
+- ASVS 10.7.2 expects consent lifetime disclosure in addition to client/resource/scope information.
+- ASVS Level 3 requires sender-constrained access tokens and PAR; a short-lived exact-audience bearer token is not Level 3.
+- OWASP WSTG treats consent CSRF and clickjacking as concrete OAuth authorization-server tests.
+
+### What was tricky to build
+
+- Immediate JWT revocation across independent resource servers could have introduced raw-token denylists or tight package coupling. A stable `grant_id` plus monotonic `grant_version` provides a clearer composition point: JWT verification establishes token integrity, then a narrow status reader establishes current grant validity.
+- Consent CSRF needs an authorization-server browser binding in addition to the OAuth client's `state`. The design uses an unguessable one-time consent form token bound to a secure `__Host-` browser-flow cookie, with Fetch Metadata/Origin checks as defense in depth.
+- OWASP has requirements for several roles. The crosswalk distinguishes what oh-auth enforces, what client/resource adapters must enforce, what is not applicable, and what is deferred Level 3.
+
+### What warrants a second pair of eyes
+
+- Review the operational availability and cache policy for remote grant-status checks.
+- Confirm target MCP hosts can tolerate an authorization server that always prompts for unverified DCR clients.
+- Validate whether user grant management should be hosted by oh-auth HTTP transport or an application-authenticated UI adapter.
+- Review the exact ASVS applicability claim; it is a design target, not certification.
+- Confirm the Level 3 profile fails closed until DPoP/mTLS/PAR support exists end to end.
+
+### What should be done in the future
+
+- Refresh the OWASP corpus intentionally and review upstream diffs before changing the crosswalk.
+- Implement the machine-readable OWASP/authorization test matrix as a required CI gate.
+- Decide the grant-status propagation SLA and account-management host before Phase 5/6 implementation.
+
+### Code review instructions
+
+- Start with design Section 27 and trace every “Amended” row back to Sections 8–19.
+- Verify `sources/owasp/SHA256SUMS` with `sha256sum -c`.
+- Run the download script only when intentionally refreshing source evidence.
+- During implementation, use the WSTG-derived matrix in Section 27.8 as executable negative tests.
+
+### Technical details
+
+- Source manifest: `sources/owasp/README.md`.
+- Source refresh script: `scripts/01-download-owasp-sources.sh`.
+- Primary checklist: OWASP ASVS 5.0 V10.
+- Standard profile target: applicable ASVS Level 2 controls.
+- High-assurance gap: sender-constrained tokens, PAR/JAR, and strong confidential-client authentication.
+
+## Step 4: Publish the OWASP-amended review bundle
+
+This step rendered the amended design, investigation diary, and OWASP source manifest as one updated reMarkable bundle. The source manifest makes the remote review copy self-describing without embedding more than 400 KB of third-party source text into the PDF.
+
+A dry run confirmed all three inputs before replacing the prior ticket PDF.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 3)
+
+**Assistant interpretation:** Deliver the OWASP-reviewed architecture and source index to the existing ticket destination.
+
+**Inferred user intent:** Ensure the reMarkable review copy reflects the security audit rather than the superseded initial design.
+
+### What I did
+
+- Ran a forced dry-run bundle with the amended design, diary, and `sources/owasp/README.md`.
+- Replaced `OH AUTH Composable OAuth Server Extraction Design.pdf` in the ticket's reMarkable directory.
+
+### Why
+
+- The original PDF predated the OWASP crosswalk and substantial API/security amendments.
+- The manifest provides local filenames, canonical URLs, and section relevance without bloating the bundle with every downloaded source.
+
+### What worked
+
+- Remarquee reported `OK: uploaded OH AUTH Composable OAuth Server Extraction Design.pdf -> /ai/2026/09/01/OH-AUTH-001`.
+
+### What didn't work
+
+- Final whitespace validation initially reported: `changelog.md:43: new blank line at EOF.`
+- `docmgr changelog update` had appended an extra terminal blank line. I removed it before staging.
+- The first staged-source check then found trailing spaces in upstream/raw and Defuddle-folded OWASP Markdown, including `API4-2023-Unrestricted-Resource-Consumption.md:7: trailing whitespace` and multiple WSTG wrapped lines. I amended the download script to remove only trailing spaces/tabs while preserving content and line breaks, reran it, regenerated `SHA256SUMS`, and reran `git diff --check` successfully.
+
+### What I learned
+
+- The amended 2,000-plus-line design, diary, and source manifest render successfully as one navigable PDF.
+
+### What was tricky to build
+
+- Uploading the complete OWASP corpus would make the review bundle unwieldy. The design links exact online sections, while the compact manifest points to downloaded evidence in Git.
+
+### What warrants a second pair of eyes
+
+- Confirm the expanded OWASP tables remain readable on the device.
+
+### What should be done in the future
+
+- Re-upload only after a material design or OWASP-source refresh, using dry-run and `--force` deliberately.
+
+### Code review instructions
+
+- Use design Section 27 as the security review entry point and the manifest to locate source evidence.
+
+### Technical details
+
+- Remote path: `/ai/2026/09/01/OH-AUTH-001`.
+- Bundle contents: design, diary, and OWASP source manifest.

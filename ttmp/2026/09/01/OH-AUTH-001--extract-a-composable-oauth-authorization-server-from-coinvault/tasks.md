@@ -11,3 +11,4 @@
 - [ ] Integrate an independent RAG resource server and test audience isolation <!-- t:wfnu -->
 - [ ] Run full security, race, fuzz, GOWORK-off, and host acceptance gates <!-- t:f8yy -->
 - [x] Validate and upload the ticket bundle to reMarkable <!-- t:9dqj -->
+- [x] Review design against OWASP ASVS, cheat sheets, API Security, and WSTG guidance <!-- t:z926 -->

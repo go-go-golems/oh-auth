@@ -22,3 +22,21 @@ Validated the extraction ticket and uploaded the design plus diary bundle to /ai
 ### Related Files
 
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/design-doc/01-composable-oauth-server-extraction-analysis-design-and-implementation-guide.md — Published canonical extraction design
+
+## 2026-09-01
+
+Downloaded and checksummed a focused OWASP corpus; amended the design for ASVS Level 2, durable grant revocation, consent management/CSRF, JWT trust, browser headers, deny-by-default resource policy, resource budgets, and WSTG-derived CI tests.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/design-doc/01-composable-oauth-server-extraction-analysis-design-and-implementation-guide.md — Amended architecture and OWASP requirement crosswalk
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/sources/owasp/README.md — OWASP source manifest
+
+
+## 2026-09-01
+
+Replaced the reMarkable bundle with the OWASP-amended design, diary, and source manifest.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/design-doc/01-composable-oauth-server-extraction-analysis-design-and-implementation-guide.md — OWASP-amended published design
