@@ -108,3 +108,13 @@ Step 11: Replaced dynamically concatenated pruning SQL with fixed statements aft
 ### Related Files
 
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/sqlitestore/store.go — Static SQL allowlist for expiry pruning
+
+## 2026-09-01
+
+Step 12: Closed the second Codex review round with subject-bound refresh revalidation, trusted authorization error redirects, complete limit validation, query-bearing redirect support, and IPv6 loopback support.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/httptransport/server.go — Safe authorization error redirects
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/oauthserver/config.go — Complete operational-limit and URL validation
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/oauthserver/engine.go — Subject binding and trusted redirect validation

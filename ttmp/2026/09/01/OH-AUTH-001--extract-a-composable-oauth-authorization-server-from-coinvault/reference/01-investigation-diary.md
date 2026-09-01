@@ -905,3 +905,84 @@ The helper now carries a fixed query literal for each transient table. This pres
 - Failed run: `33547065100`.
 - Finding: `G202 (CWE-89)` from `"DELETE FROM "+item.table+...`.
 - Corrected commit: `a7859a4199ee3ae3c27b83b8332f5290abde941d`.
+
+## Step 12: Address the second PR review round
+
+The next Codex review found five additional correctness gaps after the first fixes. This round closes them without weakening the trust boundary: refresh revalidation must remain tied to the original subject, authorization errors may redirect only after an exact registered redirect is independently validated, all configured limits must be usable, and exact redirect matching must support query components and IPv6 loopback callbacks.
+
+The library and CoinVault consumer now point at the same corrected branch, and the local security suite is green. A fresh GitHub review is requested against the final pushed commit.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 10)
+
+**Assistant interpretation:** Address the newly reported PR #1 findings as well, including changes needed in the previous CoinVault extraction ticket.
+
+**Inferred user intent:** Continue the review loop until the shared library and its consumer have no known correctness findings.
+
+**Commit (code):** 6df26ff — "fix: close second OAuth review round"; CoinVault dependency update `cf04b4d` — "chore: consume second review fixes"
+
+### What I did
+
+- Bound an eligible refresh revalidation result to the original refresh grant subject; empty or different subjects now fail without consuming the grant.
+- Added `Engine.ValidateRedirect` and HTTP authorization-error redirection only after exact client/redirect validation, preserving the client's state for trusted errors.
+- Made `Config.Validate` reject every zero/negative operational registration, capacity, retention, and HTTP limit.
+- Allowed query components in registered exact redirect URIs while continuing to reject fragments, credentials, and unsafe schemes.
+- Corrected IPv6 loopback recognition from `"[::1]"` to the parsed hostname `"::1"`.
+- Added regression tests for subject binding, trusted error redirects, all-limit validation, query-bearing redirects, and IPv6 loopback.
+- Updated CoinVault to the corrected oh-auth pseudo-version and pushed it through the full reduced-memory pre-push suite.
+- Printed the second review-round start slip.
+
+### Why
+
+- Each finding could either break a valid client flow or convert an adapter mistake into cross-account authorization.
+- Trusting redirect errors only after a second exact lookup avoids open redirects while still satisfying OAuth client error semantics.
+
+### What worked
+
+- `GOWORK=off go test ./... -count=1` passed.
+- `GOWORK=off go test -race ./... -count=1` passed.
+- `GOWORK=off go vet ./...` passed.
+- `GOWORK=off golangci-lint run --allow-parallel-runners -v` passed with 0 issues; the normal local lock was stale during one attempt.
+- `GOWORK=off gosec -exclude=G101,G304,G301,G306,G204 -exclude-dir=.history ./...` passed with 0 issues.
+- CoinVault full pre-push validation passed with `GOGC=50 GOMAXPROCS=2`, including build, lint, GoSec, vulnerability scan, and tests.
+- Both repositories are clean and their review branches are pushed.
+
+### What didn't work
+
+- A combined local validation attempt reported `Error: parallel golangci-lint is running` even though no active linter process remained. Rerunning with the explicit `--allow-parallel-runners` option passed.
+- The first post-fix GitHub review against commit `eea2048` produced the five findings recorded here; the latest commit `6df26ff` was pushed afterward and needs the next review result.
+
+### What I learned
+
+- OAuth error handling needs a separate trusted-redirect validation operation; checking redirect safety only inside the main authorization transition is insufficient when that transition can fail after the client lookup.
+- Configuration validation is part of runtime safety: an accepted zero capacity is effectively a deterministic denial of service.
+
+### What was tricky to build
+
+- Query-bearing redirect URIs are safe when compared as exact registered strings, but they cannot pass an origin validator that rejects queries. Splitting generic redirect validation from issuer/resource-origin validation preserves both requirements.
+- The revalidation subject check must occur before scope policy, token issuance, or refresh successor persistence, so a malformed adapter result cannot influence any successor state.
+
+### What warrants a second pair of eyes
+
+- Verify the next Codex review checks the latest commit rather than only the earlier `eea2048` snapshot.
+- Review trusted error redirect behavior for all failures after client/redirect validation, including temporary login-starter errors.
+- Confirm timestamp/query normalization is never introduced around exact redirect comparison.
+
+### What should be done in the future
+
+- Keep the reviewer regression cases in the conformance suite when the in-memory and SQLite stores are unified.
+- Address the unrelated moderate dependency alert reported for the oh-auth default branch through normal dependency maintenance.
+
+### Code review instructions
+
+- Review `pkg/oauthserver/engine.go` around `ValidateRedirect` and `Refresh`.
+- Review `pkg/oauthserver/config.go` validators and `pkg/httptransport/server.go` authorization error mapping.
+- Run `GOWORK=off go test ./... -count=1`, `GOWORK=off go test -race ./... -count=1`, `GOWORK=off go vet ./...`, and GoSec.
+- Check CoinVault's `internal/mcpoauth/provider.go` and `go.mod` for consumption of the latest oh-auth commit.
+
+### Technical details
+
+- New review finding IDs: `3907446467`, `3907446479`, `3907446487`, `3907446493`, and `3907446498`.
+- oh-auth final review-round commit: `6df26ff2628dddba1f452ec9e76e6a36ccf97d1c`.
+- CoinVault consumer commit: `cf04b4d`.
