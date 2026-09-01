@@ -67,3 +67,11 @@ Step 7: Normalized oh-auth into a library module, removed template binary/loggin
 
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/README.md — Library documentation
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/go.mod — Public module normalization
+
+## 2026-09-01
+
+Step 8: Implemented validated core values, typed transition ports, deterministic memory fixtures, and the complete local OAuth lifecycle (commit 523eeea).
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/oauthserver/engine.go — Reusable OAuth transition engine

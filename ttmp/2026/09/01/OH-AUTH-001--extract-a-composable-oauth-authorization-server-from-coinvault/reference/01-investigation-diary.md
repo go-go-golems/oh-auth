@@ -20,10 +20,20 @@ RelatedFiles:
       Note: |-
         Repository normalization evidence and preserved user toolchain edit
         Normalized public module path while preserving toolchain
+    - Path: repo://pkg/memorytest/store.go
+      Note: Deterministic atomic store fixture (commit 523eeea)
     - Path: repo://pkg/oauthresource/doc.go
       Note: Initial resource package boundary
     - Path: repo://pkg/oauthserver/doc.go
       Note: Initial core package boundary
+    - Path: repo://pkg/oauthserver/engine.go
+      Note: Core transition ordering and scope reduction (commit 523eeea)
+    - Path: repo://pkg/oauthserver/identifiers.go
+      Note: Validated identifiers and PKCE (commit 523eeea)
+    - Path: repo://pkg/oauthserver/ports.go
+      Note: Transition and capability contracts (commit 523eeea)
+    - Path: repo://pkg/oauthserver/scopes.go
+      Note: Canonical immutable scope sets (commit 523eeea)
     - Path: repo://ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/scripts/01-download-owasp-sources.sh
       Note: Reproducible OWASP source download and checksum workflow
     - Path: repo://ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/sources/owasp/README.md
@@ -38,6 +48,7 @@ LastUpdated: 2026-09-01T15:40:00-04:00
 WhatFor: Preserve how the extraction boundary and composable API were derived from CoinVault, go-go-mcp, the review hardenings, and the new repository.
 WhenToUse: Read before implementing or resuming OH-AUTH-001.
 ---
+
 
 
 
@@ -553,3 +564,86 @@ The checkpoint establishes a clean dependency boundary for the implementation ph
 - Module: `github.com/go-go-golems/oh-auth`.
 - Public roots: `pkg/oauthserver`, `pkg/oauthresource`.
 - Checkpoint commit: `12c8af9962afbf5be4a9decff471af449860bbdd`.
+
+## Step 8: Implement validated core values and transition ports
+
+This step created the first working OAuth domain instead of leaving the repository as a shell. The core package now validates identifiers and PKCE, canonicalizes scope sets, models typed principals and resource-bound state, and exposes transition-oriented storage and capability interfaces.
+
+A deterministic in-memory store and fixture set make the core testable without HTTP, SQLite, JWT libraries, or application dependencies. The engine exercises the complete local lifecycle from dynamic registration through consent, code exchange, refresh rotation, and revocation.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 7)
+
+**Assistant interpretation:** Begin implementing the ticket according to the staged plan, committing meaningful phases and documenting the implementation journey.
+
+**Inferred user intent:** Establish secure reusable OAuth mechanics with executable tests before wiring real adapters or consumers.
+
+**Commit (code):** 523eeea — "feat: add OAuth core transitions"
+
+### What I did
+
+- Added `pkg/oauthserver` value types for identifiers, exact URLs, scopes, PKCE, principals, resources, clients, consent, authorization codes, and refresh grants.
+- Added canonical sorted/deduplicated `ScopeSet` operations with copy-on-read values.
+- Added `Config`, secure defaults, state capacity/retention policy, static resource registry, typed OAuth errors, clocks, crypto secrets, and audit ports.
+- Defined transition-oriented `Store[A]`, token, scope-policy, revalidation, and secret interfaces.
+- Implemented `Engine[A]` operations: `RegisterClient`, `BeginAuthorization`, `CompleteLogin`, `ConsentView`, `DecideConsent`, `ExchangeCode`, `Refresh`, and `Revoke`.
+- Added `pkg/memorytest` deterministic store and fixtures.
+- Added unit tests for scope immutability, PKCE S256, the complete OAuth lifecycle, wrong-verifier retry, refresh rotation, and revocation.
+
+### Why
+
+- The design requires application identity and policy to remain outside a protocol-neutral core.
+- Preparing access/refresh output before atomic code or refresh commits prevents failures from consuming usable credentials.
+- The memory store gives a fast executable contract for later SQLite conformance.
+
+### What worked
+
+- `GOWORK=off go test ./... -count=1` passed.
+- `GOWORK=off go test -race ./... -count=1` passed.
+- `GOWORK=off go vet ./...` passed.
+- The pre-commit test and lint hooks passed after the final code adjustment.
+- Wrong PKCE verification did not consume the authorization code; the correct verifier subsequently exchanged it.
+
+### What didn't work
+
+- The first commit attempt was rejected by the pre-commit lint hook with:
+  - `pkg/oauthserver/scopes.go:89:6: function min has same name as predeclared identifier`
+  - `pkg/oauthserver/identifiers.go:51:19: S1002: should omit comparison to bool constant, can be simplified to !u.IsAbs()`
+- Renamed `min` to `minInt` and simplified the boolean expression, then reran the commit successfully.
+- The initial test compile also reported `code.ConsumedAt undefined`; the missing field was added to `AuthorizationCodeRecord` before rerunning tests.
+
+### What I learned
+
+- The store contract must expose reads separately from atomic commits so wrong bindings can be checked without consuming state.
+- Refresh replay semantics require explicit consumed/revoked timestamps in stored records, even if the public design examples omit lifecycle bookkeeping fields.
+
+### What was tricky to build
+
+- The authorization code is returned only through a redirect, while the store must receive only its digest. The engine therefore keeps the raw generated code locally, stores the digest, and constructs the redirect only after the atomic consent commit succeeds.
+- Scope reduction occurs at login and again at refresh. The policy returns availability, but the engine performs all intersections.
+
+### What warrants a second pair of eyes
+
+- Review whether the current typed identifier character sets are sufficiently strict for all OAuth endpoint inputs.
+- Review the memory store's use of `time.Now()` for consumed timestamps; production stores need a consistent clock/transaction-time policy.
+- Review refresh replay handling and the exact error classification before implementing SQLite.
+
+### What should be done in the future
+
+- Add a shared store conformance suite and SQLite implementation.
+- Replace the fixture token service with fixed-algorithm JWT issuance and verification.
+- Add HTTP parsing and consent transport tests around these transition contracts.
+
+### Code review instructions
+
+- Start with `pkg/oauthserver/identifiers.go`, `scopes.go`, `ports.go`, and `engine.go`.
+- Trace `DecideConsent` through `CommitConsent`, then `ExchangeCode` through `CommitCodeExchange`.
+- Validate with `GOWORK=off go test ./... -count=1`, `GOWORK=off go test -race ./... -count=1`, and `GOWORK=off go vet ./...`.
+
+### Technical details
+
+- Core package imports only the standard library.
+- Raw credentials are generated by `SecretSource`; store-facing records contain `CredentialDigest` values.
+- Resource-bound tokens carry one `ResourceID`; refresh scopes are intersected with current policy availability.
+- Checkpoint commit: `523eeea97549d2ed60a718924310fcbd2971a079`.
