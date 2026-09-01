@@ -1232,3 +1232,86 @@ The same phase made time and atomicity coherent. Memory and SQLite stores now us
 
 - One-time records remain available until their own expiry; consumed refresh generations remain available until family expiry for replay detection.
 - The optional fourth `sqlitestore.Open` argument injects a clock while preserving existing three-argument consumers.
+
+## Step 16: Unify runtime configuration and harden protocol boundaries
+
+This phase removed independent HTTP copies of issuer, resources, token service, and policy. The engine now exposes immutable adapter views, verifies that the token issuer and resource registry match its validated configuration, and gives the HTTP transport one coherent source of runtime truth.
+
+HTTP and JWT hardening stayed focused on protocol-visible ambiguity: typed trusted redirects, client-returned login startup errors, parsed media types, scalar cardinality, body/query separation, bounded DCR arrays, supported metadata, RSA strength, UTC normalization, schema-version fail-closed behavior, and safe audit events for successful authority transitions.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 14)
+
+**Assistant interpretation:** Remove configuration drift and boundary ambiguity with small API simplifications, not a new server framework or route-prefix subsystem.
+
+**Inferred user intent:** Make the reusable runtime hard to misassemble and interoperability-safe before consumer validation.
+
+**Commit (code):** `7edaef66b4938989a9667be6bc69b40e4bc3ee54` — "fix: unify runtime and harden HTTP boundaries"
+
+### What I did
+
+- Reduced `httptransport.Config` to the engine plus application login starter.
+- Added engine views for issuer, resources, tokens, and HTTP policy.
+- Added `TokenService.TokenIssuer` and engine issuer-coherence validation.
+- Validated configured resources against the injected registry at construction.
+- Removed the unused secret-source JTI method; JWT owns JTI generation.
+- Added a capability-style `TrustedRedirect` returned only by exact registered lookup.
+- Redirected login-starter unavailable/failure outcomes to the trusted client with state.
+- Parsed form/JSON media types with `mime.ParseMediaType`.
+- Rejected query/body mixing and duplicate scalar OAuth parameters.
+- Bounded authorization queries and DCR metadata arrays; rejected unsupported/duplicate grant and response metadata.
+- Rejected malformed consent decisions instead of silently interpreting them as denial.
+- Enforced valid RSA private keys and 2048-bit minimums in the reusable JWT adapter.
+- Normalized all engine timestamps to UTC and made SQLite reject unsupported/corrupt schema version state.
+- Added audit events for authorization start, login completion, consent, exchange, refresh, ineligibility revocation, and explicit revocation.
+- Added strict HTTP, configuration-coherence, weak-key, schema, and audit tests.
+
+### Why
+
+- Repeating security configuration in every adapter permits metadata, authorization, and tokens to disagree while each constructor succeeds.
+- OAuth parameters are bindings; accepting duplicates or query/body ambiguity delegates security semantics to parser ordering.
+- CoinVault's RSA check did not protect other library consumers.
+
+### What worked
+
+- Normal tests, race tests, and vet passed.
+- Pre-commit test and lint hooks passed with zero issues.
+- Parameterized form content types remain interoperable while invalid lookalikes/cardinality are rejected.
+- Login startup failure now reaches the exact registered client as `temporarily_unavailable` with original state.
+
+### What didn't work
+
+- N/A. Tests remained green through the runtime/API consolidation.
+
+### What I learned
+
+- Engine adapter views provide most runtime coherence benefits without introducing a larger runtime facade.
+- A distinct trusted-redirect type makes the security proof visible to humans and static analyzers while preserving exact URL strings.
+
+### What was tricky to build
+
+- Form parsing normally merges URL query and body values. The token/consent/revoke endpoints now reject any query and validate `PostForm` only, preventing hidden precedence rules.
+- Resource-registry coherence must compare exact ID, display name, and canonical scopes at startup without coupling the engine to a concrete registry implementation.
+
+### What warrants a second pair of eyes
+
+- Review whether startup enumeration is acceptable for every intended `ResourceRegistry` implementation.
+- Review the `TrustedRedirect` API and CodeQL result on the next exact head.
+- Confirm HTTP rejection of token/revoke query parameters matches target clients.
+
+### What should be done in the future
+
+- Add mount-prefix support only if a real deployment requires path-based issuers; origin-only remains explicit v0.1 behavior.
+- Introduce schema version 2 only with an actual representation change and migration test.
+
+### Code review instructions
+
+- Review `Engine.New` coherence checks and the reduced `httptransport.Config` first.
+- Trace authorization parsing through trusted error redirects and login startup failure.
+- Run HTTP strict tests, JWT tests, normal tests, race tests, and vet.
+
+### Technical details
+
+- The SQLite schema remains version 1; startup now rejects zero, duplicate, or unsupported version rows rather than proceeding ambiguously.
+- `application/x-www-form-urlencoded; charset=UTF-8` is accepted through standards-based media-type parsing.

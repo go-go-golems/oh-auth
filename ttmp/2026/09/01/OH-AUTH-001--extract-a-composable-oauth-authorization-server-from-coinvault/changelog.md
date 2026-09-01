@@ -148,3 +148,13 @@ Step 15: Enforced digest-only transaction/consent persistence, one injected cloc
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/memorytest/store.go — Clocked store aligned to durable semantics
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/oauthserver/transitions.go — Pure atomic transition invariant validators
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/sqlitestore/store.go — Digest-only clocked authoritative durable commits
+
+## 2026-09-01
+
+Step 16: Unified engine/HTTP runtime configuration and hardened trusted redirects, media types, OAuth parameter cardinality, DCR metadata, RSA keys, audit coverage, UTC time, and schema checks (commit 7edaef6).
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/httptransport/server.go — Single-source runtime and strict protocol parsing
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/jwttokens/service.go — Reusable RSA key safeguards
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/oauthserver/engine.go — Configuration coherence trusted redirects and audit
