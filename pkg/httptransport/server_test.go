@@ -20,7 +20,7 @@ func (loginStarter) AuthorizationURL(_ context.Context, login oauthserver.LoginC
 	return "/login?transaction=" + string(login.Transaction), nil
 }
 
-func newServer(t *testing.T) (*httptransport.Server[struct{}], *memorytest.Store[struct{}]) {
+func newServer(t *testing.T, policies ...oauthserver.HTTPPolicy) (*httptransport.Server[struct{}], *memorytest.Store[struct{}]) {
 	t.Helper()
 	scopes, _ := oauthserver.NewScopeSet("read")
 	config := oauthserver.DefaultConfig("https://auth.example.test", []oauthserver.ResourceConfig{{ID: "https://mcp.example.test/mcp", DisplayName: "MCP", SupportedScopes: []string{"read"}}}, scopes)
@@ -34,7 +34,11 @@ func newServer(t *testing.T) (*httptransport.Server[struct{}], *memorytest.Store
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := httptransport.New(httptransport.Config[struct{}]{Engine: engine, Issuer: config.Issuer, Resources: resources, Tokens: &memorytest.TokenService[struct{}]{}, Login: loginStarter{}, Policy: config.HTTP})
+	policy := config.HTTP
+	if len(policies) > 0 {
+		policy = policies[0]
+	}
+	server, err := httptransport.New(httptransport.Config[struct{}]{Engine: engine, Issuer: config.Issuer, Resources: resources, Tokens: &memorytest.TokenService[struct{}]{}, Login: loginStarter{}, Policy: policy})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,6 +79,13 @@ func TestServerMetadataRegistrationAndBoundaries(t *testing.T) {
 	if registerResponse.Code != http.StatusCreated {
 		t.Fatalf("registration status = %d body=%s", registerResponse.Code, registerResponse.Body.String())
 	}
+	var registration map[string]any
+	if err := json.Unmarshal(registerResponse.Body.Bytes(), &registration); err != nil {
+		t.Fatal(err)
+	}
+	if registration["client_id"] == nil || registration["client_name"] != "test" {
+		t.Fatalf("non-RFC registration response: %+v", registration)
+	}
 
 	unsupported := httptest.NewRequest(http.MethodPost, "https://auth.example.test/oauth/register", strings.NewReader(`{}`))
 	unsupported.Header.Set("Content-Type", "text/plain")
@@ -82,5 +93,18 @@ func TestServerMetadataRegistrationAndBoundaries(t *testing.T) {
 	mux.ServeHTTP(unsupportedResponse, unsupported)
 	if unsupportedResponse.Code != http.StatusBadRequest {
 		t.Fatalf("unsupported content type status = %d", unsupportedResponse.Code)
+	}
+}
+
+func TestFormBodyLimitAppliesBeforeParsing(t *testing.T) {
+	server, _ := newServer(t, oauthserver.HTTPPolicy{MaxBodyBytes: 32, MaxFieldBytes: 16, MaxArrayLength: 2})
+	mux := http.NewServeMux()
+	server.Mount(mux)
+	request := httptest.NewRequest(http.MethodPost, "https://auth.example.test/oauth/token", strings.NewReader("grant_type=refresh_token&client_id=client-1&refresh_token=too-large-for-policy"))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("oversized form status = %d", response.Code)
 	}
 }
