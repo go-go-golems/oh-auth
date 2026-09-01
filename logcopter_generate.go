@@ -1,3 +1,0 @@
-package XXX
-
-//go:generate go tool logcopter-gen -area-prefix go-go-golems.XXX -strip-prefix github.com/go-go-golems/XXX ./pkg/...
