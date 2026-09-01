@@ -202,17 +202,26 @@ func (s *Store[A]) CommitLogin(ctx context.Context, commit oauthserver.LoginComm
 		return err
 	}
 	defer rollback(tx)
-	if _, err := pruneTx(ctx, tx, policy, s.clock.Now().UTC()); err != nil {
+	now := s.clock.Now().UTC()
+	if _, err := pruneTx(ctx, tx, policy, now); err != nil {
 		return err
 	}
+	var authorizationPayload []byte
 	var consumed sql.NullString
-	if err := tx.QueryRowContext(ctx, "SELECT consumed_at FROM oauth_authorizations WHERE digest=?", commit.TransactionDigest[:]).Scan(&consumed); errors.Is(err, sql.ErrNoRows) {
+	if err := tx.QueryRowContext(ctx, "SELECT payload,consumed_at FROM oauth_authorizations WHERE digest=?", commit.TransactionDigest[:]).Scan(&authorizationPayload, &consumed); errors.Is(err, sql.ErrNoRows) {
 		return oauthserver.ErrNotFound
 	} else if err != nil {
 		return err
 	}
+	var authorization oauthserver.AuthorizationTransaction
+	if err := json.Unmarshal(authorizationPayload, &authorization); err != nil {
+		return err
+	}
 	if consumed.Valid {
-		return oauthserver.ErrConsumed
+		authorization.ConsumedAt, _ = time.Parse(time.RFC3339Nano, consumed.String)
+	}
+	if err := oauthserver.ValidateLoginCommit(authorization, commit.Consent, now); err != nil {
+		return err
 	}
 	var count int
 	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM oauth_consents").Scan(&count); err != nil {
@@ -229,13 +238,13 @@ func (s *Store[A]) CommitLogin(ctx context.Context, commit oauthserver.LoginComm
 	if err != nil {
 		return err
 	}
-	now := s.clock.Now().UTC().Format(time.RFC3339Nano)
+	nowText := now.Format(time.RFC3339Nano)
 	if _, err := tx.ExecContext(ctx, "INSERT INTO oauth_consents(digest,payload) VALUES(?,?)", digestBytes(commit.Consent.Token), payload); isConstraint(err) {
 		return oauthserver.ErrConflict
 	} else if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE oauth_authorizations SET consumed_at=? WHERE digest=? AND consumed_at IS NULL", now, commit.TransactionDigest[:]); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE oauth_authorizations SET consumed_at=? WHERE digest=? AND consumed_at IS NULL", nowText, commit.TransactionDigest[:]); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -270,7 +279,8 @@ func (s *Store[A]) CommitConsent(ctx context.Context, commit oauthserver.Consent
 		return oauthserver.ConsentCommitResult{}, err
 	}
 	defer rollback(tx)
-	if _, err := pruneTx(ctx, tx, policy, s.clock.Now().UTC()); err != nil {
+	now := s.clock.Now().UTC()
+	if _, err := pruneTx(ctx, tx, policy, now); err != nil {
 		return oauthserver.ConsentCommitResult{}, err
 	}
 	var payload []byte
@@ -280,8 +290,20 @@ func (s *Store[A]) CommitConsent(ctx context.Context, commit oauthserver.Consent
 	} else if err != nil {
 		return oauthserver.ConsentCommitResult{}, err
 	}
+	var envelope consentEnvelope[A]
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return oauthserver.ConsentCommitResult{}, err
+	}
+	principal, err := s.codec.DecodePrincipal(envelope.Principal)
+	if err != nil {
+		return oauthserver.ConsentCommitResult{}, err
+	}
+	envelope.Session.Principal = principal
 	if consumed.Valid {
-		return oauthserver.ConsentCommitResult{}, oauthserver.ErrConsumed
+		envelope.Session.ConsumedAt, _ = time.Parse(time.RFC3339Nano, consumed.String)
+	}
+	if err := oauthserver.ValidateConsentCommit(envelope.Session, commit, now); err != nil {
+		return oauthserver.ConsentCommitResult{}, err
 	}
 	if commit.Decision == oauthserver.ConsentDecisionApprove {
 		var count int
@@ -305,7 +327,7 @@ func (s *Store[A]) CommitConsent(ctx context.Context, commit oauthserver.Consent
 			return oauthserver.ConsentCommitResult{}, err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE oauth_consents SET consumed_at=? WHERE digest=? AND consumed_at IS NULL", s.clock.Now().UTC().Format(time.RFC3339Nano), commit.ConsentDigest[:]); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE oauth_consents SET consumed_at=? WHERE digest=? AND consumed_at IS NULL", now.Format(time.RFC3339Nano), commit.ConsentDigest[:]); err != nil {
 		return oauthserver.ConsentCommitResult{}, err
 	}
 	return oauthserver.ConsentCommitResult{RedirectURI: ""}, tx.Commit()
@@ -342,20 +364,31 @@ func (s *Store[A]) CommitCodeExchange(ctx context.Context, commit oauthserver.Co
 		return err
 	}
 	defer rollback(tx)
-	if _, err := pruneTx(ctx, tx, policy, s.clock.Now().UTC()); err != nil {
+	now := s.clock.Now().UTC()
+	if _, err := pruneTx(ctx, tx, policy, now); err != nil {
 		return err
 	}
+	var codePayload []byte
 	var consumed sql.NullString
-	if err := tx.QueryRowContext(ctx, "SELECT consumed_at FROM oauth_codes WHERE digest=?", commit.CodeDigest[:]).Scan(&consumed); errors.Is(err, sql.ErrNoRows) {
+	if err := tx.QueryRowContext(ctx, "SELECT payload,consumed_at FROM oauth_codes WHERE digest=?", commit.CodeDigest[:]).Scan(&codePayload, &consumed); errors.Is(err, sql.ErrNoRows) {
 		return oauthserver.ErrNotFound
 	} else if err != nil {
 		return err
 	}
-	if consumed.Valid {
-		return oauthserver.ErrConsumed
+	var storedCode codeEnvelope[A]
+	if err := json.Unmarshal(codePayload, &storedCode); err != nil {
+		return err
 	}
-	if commit.Refresh == nil {
-		return oauthserver.ErrInvalid
+	principal, err := s.codec.DecodePrincipal(storedCode.Principal)
+	if err != nil {
+		return err
+	}
+	storedCode.Record.Principal = principal
+	if consumed.Valid {
+		storedCode.Record.ConsumedAt, _ = time.Parse(time.RFC3339Nano, consumed.String)
+	}
+	if err := oauthserver.ValidateCodeExchangeCommit(storedCode.Record, commit, now); err != nil {
+		return err
 	}
 	var count int
 	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM oauth_refresh_grants").Scan(&count); err != nil {
@@ -364,11 +397,11 @@ func (s *Store[A]) CommitCodeExchange(ctx context.Context, commit oauthserver.Co
 	if count >= policy.Capacity.MaxRefreshGrants {
 		return oauthserver.ErrCapacity
 	}
-	principal, err := encodePrincipal(s.codec, commit.Refresh.Principal)
+	encodedPrincipal, err := encodePrincipal(s.codec, commit.Refresh.Principal)
 	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(refreshEnvelope[A]{Grant: *commit.Refresh, Principal: principal})
+	payload, err := json.Marshal(refreshEnvelope[A]{Grant: *commit.Refresh, Principal: encodedPrincipal})
 	if err != nil {
 		return err
 	}
@@ -377,7 +410,7 @@ func (s *Store[A]) CommitCodeExchange(ctx context.Context, commit oauthserver.Co
 	} else if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE oauth_codes SET consumed_at=? WHERE digest=? AND consumed_at IS NULL", s.clock.Now().UTC().Format(time.RFC3339Nano), commit.CodeDigest[:]); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE oauth_codes SET consumed_at=? WHERE digest=? AND consumed_at IS NULL", now.Format(time.RFC3339Nano), commit.CodeDigest[:]); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -420,13 +453,15 @@ func (s *Store[A]) CommitRefreshRotation(ctx context.Context, rotation oauthserv
 		return err
 	}
 	defer rollback(tx)
-	if _, err := pruneTx(ctx, tx, policy, s.clock.Now().UTC()); err != nil {
+	now := s.clock.Now().UTC()
+	if _, err := pruneTx(ctx, tx, policy, now); err != nil {
 		return err
 	}
+	var storedPayload []byte
 	var family string
 	var generation uint64
 	var consumed, revoked sql.NullString
-	if err := tx.QueryRowContext(ctx, "SELECT family_id,generation,consumed_at,revoked_at FROM oauth_refresh_grants WHERE digest=?", rotation.CurrentDigest[:]).Scan(&family, &generation, &consumed, &revoked); errors.Is(err, sql.ErrNoRows) {
+	if err := tx.QueryRowContext(ctx, "SELECT payload,family_id,generation,consumed_at,revoked_at FROM oauth_refresh_grants WHERE digest=?", rotation.CurrentDigest[:]).Scan(&storedPayload, &family, &generation, &consumed, &revoked); errors.Is(err, sql.ErrNoRows) {
 		return oauthserver.ErrNotFound
 	} else if err != nil {
 		return err
@@ -435,13 +470,24 @@ func (s *Store[A]) CommitRefreshRotation(ctx context.Context, rotation oauthserv
 		return oauthserver.ErrBinding
 	}
 	if consumed.Valid || revoked.Valid {
-		if err := revokeFamilyTx(ctx, tx, rotation.FamilyID, s.clock.Now().UTC()); err != nil {
+		if err := revokeFamilyTx(ctx, tx, rotation.FamilyID, now); err != nil {
 			return err
 		}
 		if err := tx.Commit(); err != nil {
 			return err
 		}
 		return oauthserver.ErrRevoked
+	}
+	var envelope refreshEnvelope[A]
+	if err := json.Unmarshal(storedPayload, &envelope); err != nil {
+		return err
+	}
+	current, err := s.decodeRefresh(envelope)
+	if err != nil {
+		return err
+	}
+	if err := oauthserver.ValidateRefreshRotation(current, rotation, now); err != nil {
+		return err
 	}
 	var count int
 	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM oauth_refresh_grants").Scan(&count); err != nil {
@@ -463,7 +509,7 @@ func (s *Store[A]) CommitRefreshRotation(ctx context.Context, rotation oauthserv
 	} else if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE oauth_refresh_grants SET consumed_at=? WHERE digest=? AND consumed_at IS NULL", s.clock.Now().UTC().Format(time.RFC3339Nano), rotation.CurrentDigest[:]); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE oauth_refresh_grants SET consumed_at=? WHERE digest=? AND consumed_at IS NULL", now.Format(time.RFC3339Nano), rotation.CurrentDigest[:]); err != nil {
 		return err
 	}
 	return tx.Commit()

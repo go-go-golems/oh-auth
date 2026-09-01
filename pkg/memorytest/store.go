@@ -71,6 +71,7 @@ func (s *Store[A]) TouchClient(_ context.Context, id oauthserver.ClientID, at ti
 func (s *Store[A]) CreateAuthorization(_ context.Context, state oauthserver.AuthorizationTransaction, policy oauthserver.StatePolicy) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.pruneExpiredLocked(s.clock.Now().UTC())
 	if len(s.authorizers) >= policy.Capacity.MaxAuthorizations {
 		return oauthserver.ErrCapacity
 	}
@@ -93,12 +94,14 @@ func (s *Store[A]) GetAuthorization(_ context.Context, digest oauthserver.Creden
 func (s *Store[A]) CommitLogin(_ context.Context, commit oauthserver.LoginCommit[A], policy oauthserver.StatePolicy) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.pruneExpiredLocked(s.clock.Now().UTC())
 	state, ok := s.authorizers[commit.TransactionDigest]
 	if !ok {
 		return oauthserver.ErrNotFound
 	}
-	if !state.ConsumedAt.IsZero() {
-		return oauthserver.ErrConsumed
+	now := s.clock.Now().UTC()
+	if err := oauthserver.ValidateLoginCommit(state, commit.Consent, now); err != nil {
+		return err
 	}
 	if len(s.consents) >= policy.Capacity.MaxConsents {
 		return oauthserver.ErrCapacity
@@ -107,7 +110,7 @@ func (s *Store[A]) CommitLogin(_ context.Context, commit oauthserver.LoginCommit
 	if _, exists := s.consents[consentDigest]; exists {
 		return oauthserver.ErrConflict
 	}
-	state.ConsumedAt = s.clock.Now().UTC()
+	state.ConsumedAt = now
 	s.authorizers[commit.TransactionDigest] = state
 	s.consents[consentDigest] = commit.Consent
 	return nil
@@ -124,12 +127,14 @@ func (s *Store[A]) GetConsent(_ context.Context, digest oauthserver.CredentialDi
 func (s *Store[A]) CommitConsent(_ context.Context, commit oauthserver.ConsentCommit[A], policy oauthserver.StatePolicy) (oauthserver.ConsentCommitResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.pruneExpiredLocked(s.clock.Now().UTC())
 	consent, ok := s.consents[commit.ConsentDigest]
 	if !ok {
 		return oauthserver.ConsentCommitResult{}, oauthserver.ErrNotFound
 	}
-	if !consent.ConsumedAt.IsZero() {
-		return oauthserver.ConsentCommitResult{}, oauthserver.ErrConsumed
+	now := s.clock.Now().UTC()
+	if err := oauthserver.ValidateConsentCommit(consent, commit, now); err != nil {
+		return oauthserver.ConsentCommitResult{}, err
 	}
 	if commit.Decision == oauthserver.ConsentDecisionApprove {
 		if len(s.codes) >= policy.Capacity.MaxCodes {
@@ -141,7 +146,7 @@ func (s *Store[A]) CommitConsent(_ context.Context, commit oauthserver.ConsentCo
 		}
 		s.codes[digest] = commit.Code
 	}
-	consent.ConsumedAt = s.clock.Now().UTC()
+	consent.ConsumedAt = now
 	s.consents[commit.ConsentDigest] = consent
 	return oauthserver.ConsentCommitResult{RedirectURI: string(consent.Client.RedirectURI)}, nil
 }
@@ -160,20 +165,19 @@ func (s *Store[A]) GetCodeForExchange(_ context.Context, binding oauthserver.Cod
 func (s *Store[A]) CommitCodeExchange(_ context.Context, commit oauthserver.CodeExchangeCommit[A], policy oauthserver.StatePolicy) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.pruneExpiredLocked(s.clock.Now().UTC())
 	code, ok := s.codes[commit.CodeDigest]
 	if !ok {
 		return oauthserver.ErrNotFound
 	}
-	if !code.ConsumedAt.IsZero() {
-		return oauthserver.ErrConsumed
-	}
-	if commit.Refresh == nil {
-		return oauthserver.ErrInvalid
+	now := s.clock.Now().UTC()
+	if err := oauthserver.ValidateCodeExchangeCommit(code, commit, now); err != nil {
+		return err
 	}
 	if len(s.refresh) >= policy.Capacity.MaxRefreshGrants {
 		return oauthserver.ErrCapacity
 	}
-	code.ConsumedAt = s.clock.Now().UTC()
+	code.ConsumedAt = now
 	s.codes[commit.CodeDigest] = code
 	s.refresh[commit.Refresh.Digest] = *commit.Refresh
 	return nil
@@ -190,21 +194,26 @@ func (s *Store[A]) GetRefreshGrant(_ context.Context, digest oauthserver.Credent
 func (s *Store[A]) CommitRefreshRotation(_ context.Context, rotation oauthserver.RefreshRotation[A], policy oauthserver.StatePolicy) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.pruneExpiredLocked(s.clock.Now().UTC())
 	current, ok := s.refresh[rotation.CurrentDigest]
 	if !ok {
 		return oauthserver.ErrNotFound
 	}
+	now := s.clock.Now().UTC()
 	if current.FamilyID != rotation.FamilyID || current.Generation != rotation.Generation {
 		return oauthserver.ErrBinding
 	}
 	if !current.ConsumedAt.IsZero() || !current.RevokedAt.IsZero() {
-		s.revokeFamilyLocked(rotation.FamilyID, s.clock.Now().UTC())
+		s.revokeFamilyLocked(rotation.FamilyID, now)
 		return oauthserver.ErrRevoked
+	}
+	if err := oauthserver.ValidateRefreshRotation(current, rotation, now); err != nil {
+		return err
 	}
 	if len(s.refresh) >= policy.Capacity.MaxRefreshGrants {
 		return oauthserver.ErrCapacity
 	}
-	current.ConsumedAt = s.clock.Now().UTC()
+	current.ConsumedAt = now
 	s.refresh[rotation.CurrentDigest] = current
 	s.refresh[rotation.Successor.Digest] = rotation.Successor
 	return nil
@@ -223,30 +232,45 @@ func (s *Store[A]) revokeFamilyLocked(family oauthserver.RefreshFamilyID, at tim
 		}
 	}
 }
-func (s *Store[A]) Prune(_ context.Context, policy oauthserver.StatePolicy) (oauthserver.PruneStats, error) {
+func (s *Store[A]) Prune(_ context.Context, _ oauthserver.StatePolicy) (oauthserver.PruneStats, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := s.clock.Now().UTC()
+	return s.pruneExpiredLocked(s.clock.Now().UTC()), nil
+}
+
+func (s *Store[A]) pruneExpiredLocked(now time.Time) oauthserver.PruneStats {
 	stats := oauthserver.PruneStats{}
 	for digest, state := range s.authorizers {
-		if !state.ConsumedAt.IsZero() && now.Sub(state.ConsumedAt) > policy.Retention.ConsumedState {
+		if !state.ExpiresAt.After(now) {
 			delete(s.authorizers, digest)
 			stats.Authorizations++
 		}
 	}
 	for digest, consent := range s.consents {
-		if !consent.ConsumedAt.IsZero() && now.Sub(consent.ConsumedAt) > policy.Retention.ConsumedState {
+		if !consent.ExpiresAt.After(now) {
 			delete(s.consents, digest)
 			stats.Consents++
 		}
 	}
 	for digest, code := range s.codes {
-		if !code.ConsumedAt.IsZero() && now.Sub(code.ConsumedAt) > policy.Retention.ConsumedState {
+		if !code.ExpiresAt.After(now) {
 			delete(s.codes, digest)
 			stats.Codes++
 		}
 	}
-	return stats, nil
+	familyExpiry := make(map[oauthserver.RefreshFamilyID]time.Time)
+	for _, grant := range s.refresh {
+		if grant.ExpiresAt.After(familyExpiry[grant.FamilyID]) {
+			familyExpiry[grant.FamilyID] = grant.ExpiresAt
+		}
+	}
+	for digest, grant := range s.refresh {
+		if !familyExpiry[grant.FamilyID].After(now) {
+			delete(s.refresh, digest)
+			stats.RefreshGrants++
+		}
+	}
+	return stats
 }
 func (s *Store[A]) clientHasLiveAuthorizationLocked(id oauthserver.ClientID, now time.Time) bool {
 	for _, state := range s.authorizers {
