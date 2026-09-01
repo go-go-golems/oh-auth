@@ -37,7 +37,7 @@ type Config[A any] struct {
 }
 
 func New[A any](config Config[A]) (*Service[A], error) {
-	if config.Issuer == "" || config.ActiveKeyID == "" || config.ActiveKey == nil || len(config.Verification) == 0 {
+	if config.Issuer == "" || config.ActiveKeyID == "" || config.ActiveKey == nil {
 		return nil, errors.New("JWT configuration is incomplete")
 	}
 	if config.TokenType == "" {
@@ -49,6 +49,9 @@ func New[A any](config Config[A]) (*Service[A], error) {
 			return nil, errors.New("JWT verification key is invalid")
 		}
 		verification[kid] = key
+	}
+	if existing, ok := verification[config.ActiveKeyID]; ok && (existing.N.Cmp(config.ActiveKey.N) != 0 || existing.E != config.ActiveKey.E) {
+		return nil, errors.New("active JWT key ID conflicts with a different verification key")
 	}
 	verification[config.ActiveKeyID] = &config.ActiveKey.PublicKey
 	if config.Clock == nil {
