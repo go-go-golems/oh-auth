@@ -177,6 +177,9 @@ func (s *Store[A]) CommitCodeExchange(_ context.Context, commit oauthserver.Code
 	if s.activeRefreshGrantCountLocked() >= policy.Capacity.MaxRefreshGrants {
 		return oauthserver.ErrCapacity
 	}
+	if _, exists := s.refresh[commit.Refresh.Digest]; exists {
+		return oauthserver.ErrConflict
+	}
 	code.ConsumedAt = now
 	s.codes[commit.CodeDigest] = code
 	s.refresh[commit.Refresh.Digest] = *commit.Refresh
@@ -213,6 +216,9 @@ func (s *Store[A]) CommitRefreshRotation(_ context.Context, rotation oauthserver
 	if rotation.Successor.Generation >= policy.Capacity.MaxRefreshGenerations {
 		s.revokeFamilyLocked(rotation.FamilyID, now)
 		return oauthserver.ErrRevoked
+	}
+	if _, exists := s.refresh[rotation.Successor.Digest]; exists {
+		return oauthserver.ErrConflict
 	}
 	current.ConsumedAt = now
 	s.refresh[rotation.CurrentDigest] = current
