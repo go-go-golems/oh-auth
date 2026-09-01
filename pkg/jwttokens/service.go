@@ -36,6 +36,42 @@ type Config[A any] struct {
 	Clock        oauthserver.Clock
 }
 
+// Verifier validates access tokens in a resource-server process without
+// requiring that process to hold an authorization-server signing key.
+type Verifier struct {
+	issuer       string
+	tokenType    string
+	verification map[string]*rsa.PublicKey
+	clock        oauthserver.Clock
+}
+
+type VerificationConfig struct {
+	Issuer    string
+	TokenType string
+	Keys      map[string]*rsa.PublicKey
+	Clock     oauthserver.Clock
+}
+
+func NewVerifier(config VerificationConfig) (*Verifier, error) {
+	if config.Issuer == "" || len(config.Keys) == 0 {
+		return nil, errors.New("JWT verification configuration is incomplete")
+	}
+	if config.TokenType == "" {
+		config.TokenType = "at+jwt"
+	}
+	verification := make(map[string]*rsa.PublicKey, len(config.Keys))
+	for kid, key := range config.Keys {
+		if kid == "" || key == nil || key.N.BitLen() < 2048 || key.E < 3 {
+			return nil, errors.New("JWT verification key is invalid")
+		}
+		verification[kid] = key
+	}
+	if config.Clock == nil {
+		config.Clock = oauthserver.SystemClock{}
+	}
+	return &Verifier{issuer: config.Issuer, tokenType: config.TokenType, verification: verification, clock: config.Clock}, nil
+}
+
 func New[A any](config Config[A]) (*Service[A], error) {
 	if config.Issuer == "" || config.ActiveKeyID == "" || config.ActiveKey == nil {
 		return nil, errors.New("JWT configuration is incomplete")
@@ -98,7 +134,15 @@ func (s *Service[A]) IssueAccessToken(ctx context.Context, grant oauthserver.Acc
 	return oauthserver.IssuedAccessToken{Value: serialized, TokenType: "Bearer", ExpiresAt: grant.ExpiresAt}, nil
 }
 
-func (s *Service[A]) VerifyAccessToken(_ context.Context, raw string, resource oauthserver.ResourceID) (oauthserver.VerifiedAccessToken, error) {
+func (s *Service[A]) VerifyAccessToken(ctx context.Context, raw string, resource oauthserver.ResourceID) (oauthserver.VerifiedAccessToken, error) {
+	return verifyAccessToken(ctx, s.issuer, s.tokenType, s.verification, s.clock, raw, resource)
+}
+
+func (v *Verifier) VerifyAccessToken(ctx context.Context, raw string, resource oauthserver.ResourceID) (oauthserver.VerifiedAccessToken, error) {
+	return verifyAccessToken(ctx, v.issuer, v.tokenType, v.verification, v.clock, raw, resource)
+}
+
+func verifyAccessToken(_ context.Context, issuer, tokenType string, verification map[string]*rsa.PublicKey, clock oauthserver.Clock, raw string, resource oauthserver.ResourceID) (oauthserver.VerifiedAccessToken, error) {
 	parsed, err := jwt.ParseSigned(raw, []jose.SignatureAlgorithm{jose.RS256})
 	if err != nil {
 		return oauthserver.VerifiedAccessToken{}, errors.New("access token is invalid")
@@ -107,10 +151,10 @@ func (s *Service[A]) VerifyAccessToken(_ context.Context, raw string, resource o
 		return oauthserver.VerifiedAccessToken{}, errors.New("access token is invalid")
 	}
 	header := parsed.Headers[0]
-	if header.Algorithm != string(jose.RS256) || header.KeyID == "" || header.JSONWebKey != nil || headerValue(header.ExtraHeaders, jose.HeaderType) != s.tokenType || hasUntrustedKeyHeader(header) {
+	if header.Algorithm != string(jose.RS256) || header.KeyID == "" || header.JSONWebKey != nil || headerValue(header.ExtraHeaders, jose.HeaderType) != tokenType || hasUntrustedKeyHeader(header) {
 		return oauthserver.VerifiedAccessToken{}, errors.New("access token header is invalid")
 	}
-	key, ok := s.verification[header.KeyID]
+	key, ok := verification[header.KeyID]
 	if !ok {
 		return oauthserver.VerifiedAccessToken{}, errors.New("access token key is unknown")
 	}
@@ -119,8 +163,8 @@ func (s *Service[A]) VerifyAccessToken(_ context.Context, raw string, resource o
 	if err := parsed.Claims(key, &claims, &all); err != nil {
 		return oauthserver.VerifiedAccessToken{}, errors.New("access token signature is invalid")
 	}
-	now := s.clock.Now()
-	if claims.Issuer != s.issuer || claims.Subject == "" || claims.ID == "" || claims.Expiry == nil || claims.IssuedAt == nil || len(claims.Audience) != 1 || claims.Audience[0] != string(resource) || claims.ValidateWithLeeway(jwt.Expected{Issuer: s.issuer, AnyAudience: []string{string(resource)}, Time: now}, 0) != nil {
+	now := clock.Now()
+	if claims.Issuer != issuer || claims.Subject == "" || claims.ID == "" || claims.Expiry == nil || claims.IssuedAt == nil || len(claims.Audience) != 1 || claims.Audience[0] != string(resource) || claims.ValidateWithLeeway(jwt.Expected{Issuer: issuer, AnyAudience: []string{string(resource)}, Time: now}, 0) != nil {
 		return oauthserver.VerifiedAccessToken{}, errors.New("access token claims are invalid")
 	}
 	clientRaw, ok := all["client_id"].(string)
