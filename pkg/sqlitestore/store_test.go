@@ -17,7 +17,7 @@ func TestStoreTransitionsAndDigestOnlyState(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = store.Close() }()
-	now := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	scopes, _ := oauthserver.NewScopeSet("read")
 	client := oauthserver.Client{ID: "client-1", DisplayName: "client", Trust: oauthserver.ClientTrustUnverified, RedirectURIs: []oauthserver.RedirectURI{"https://client.example.test/callback"}, AllowedScopes: scopes, CreatedAt: now, LastUsedAt: now}
 	policy := oauthserver.StatePolicy{Registration: oauthserver.RegistrationPolicy{MaxClients: 4}, Capacity: oauthserver.StateCapacity{MaxAuthorizations: 4, MaxConsents: 4, MaxCodes: 4, MaxRefreshGrants: 4}, Retention: oauthserver.RetentionPolicy{ConsumedState: time.Hour}}

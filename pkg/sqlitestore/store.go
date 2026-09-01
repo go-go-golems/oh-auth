@@ -79,6 +79,9 @@ func (s *Store[A]) RegisterClient(ctx context.Context, client oauthserver.Client
 		return err
 	}
 	defer rollback(tx)
+	if _, err := pruneTx(ctx, tx, policy, time.Now().UTC()); err != nil {
+		return err
+	}
 	var count int
 	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM oauth_clients").Scan(&count); err != nil {
 		return err
@@ -134,6 +137,9 @@ func (s *Store[A]) CreateAuthorization(ctx context.Context, state oauthserver.Au
 		return err
 	}
 	defer rollback(tx)
+	if _, err := pruneTx(ctx, tx, policy, time.Now().UTC()); err != nil {
+		return err
+	}
 	var count int
 	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM oauth_authorizations").Scan(&count); err != nil {
 		return err
@@ -179,6 +185,9 @@ func (s *Store[A]) CommitLogin(ctx context.Context, commit oauthserver.LoginComm
 		return err
 	}
 	defer rollback(tx)
+	if _, err := pruneTx(ctx, tx, policy, time.Now().UTC()); err != nil {
+		return err
+	}
 	var consumed sql.NullString
 	if err := tx.QueryRowContext(ctx, "SELECT consumed_at FROM oauth_authorizations WHERE digest=?", commit.TransactionDigest[:]).Scan(&consumed); errors.Is(err, sql.ErrNoRows) {
 		return oauthserver.ErrNotFound
@@ -244,6 +253,9 @@ func (s *Store[A]) CommitConsent(ctx context.Context, commit oauthserver.Consent
 		return oauthserver.ConsentCommitResult{}, err
 	}
 	defer rollback(tx)
+	if _, err := pruneTx(ctx, tx, policy, time.Now().UTC()); err != nil {
+		return oauthserver.ConsentCommitResult{}, err
+	}
 	var payload []byte
 	var consumed sql.NullString
 	if err := tx.QueryRowContext(ctx, "SELECT payload,consumed_at FROM oauth_consents WHERE digest=?", commit.ConsentDigest[:]).Scan(&payload, &consumed); errors.Is(err, sql.ErrNoRows) {
@@ -313,6 +325,9 @@ func (s *Store[A]) CommitCodeExchange(ctx context.Context, commit oauthserver.Co
 		return err
 	}
 	defer rollback(tx)
+	if _, err := pruneTx(ctx, tx, policy, time.Now().UTC()); err != nil {
+		return err
+	}
 	var consumed sql.NullString
 	if err := tx.QueryRowContext(ctx, "SELECT consumed_at FROM oauth_codes WHERE digest=?", commit.CodeDigest[:]).Scan(&consumed); errors.Is(err, sql.ErrNoRows) {
 		return oauthserver.ErrNotFound
@@ -388,6 +403,9 @@ func (s *Store[A]) CommitRefreshRotation(ctx context.Context, rotation oauthserv
 		return err
 	}
 	defer rollback(tx)
+	if _, err := pruneTx(ctx, tx, policy, time.Now().UTC()); err != nil {
+		return err
+	}
 	var family string
 	var generation uint64
 	var consumed, revoked sql.NullString
@@ -449,16 +467,52 @@ func revokeFamilyTx(ctx context.Context, tx *sql.Tx, family oauthserver.RefreshF
 	return err
 }
 func (s *Store[A]) Prune(ctx context.Context, policy oauthserver.StatePolicy) (oauthserver.PruneStats, error) {
-	stats := oauthserver.PruneStats{}
-	cutoff := time.Now().UTC().Add(-policy.Retention.ConsumedState).Format(time.RFC3339Nano)
-	for table := range map[string]*int{"oauth_authorizations": &stats.Authorizations, "oauth_consents": &stats.Consents, "oauth_codes": &stats.Codes} {
-		result, err := s.db.ExecContext(ctx, "DELETE FROM "+table+" WHERE consumed_at IS NOT NULL AND consumed_at < ?", cutoff)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return oauthserver.PruneStats{}, err
+	}
+	defer rollback(tx)
+	stats, err := pruneTx(ctx, tx, policy, time.Now().UTC())
+	if err != nil {
+		return stats, err
+	}
+	if err := tx.Commit(); err != nil {
+		return stats, err
+	}
+	return stats, nil
+}
+
+func pruneTx(ctx context.Context, tx *sql.Tx, _ oauthserver.StatePolicy, now time.Time) (oauthserver.PruneStats, error) {
+	var stats oauthserver.PruneStats
+	cutoff := now.UTC().Format(time.RFC3339Nano)
+	for _, item := range []struct {
+		table  string
+		target *int
+	}{{"oauth_authorizations", &stats.Authorizations}, {"oauth_consents", &stats.Consents}, {"oauth_codes", &stats.Codes}} {
+		result, err := tx.ExecContext(ctx, "DELETE FROM "+item.table+" WHERE json_extract(payload, '$.ExpiresAt') <= ?", cutoff)
 		if err != nil {
 			return stats, err
 		}
-		n, _ := result.RowsAffected()
-		*map[string]*int{"oauth_authorizations": &stats.Authorizations, "oauth_consents": &stats.Consents, "oauth_codes": &stats.Codes}[table] = int(n)
+		removed, err := result.RowsAffected()
+		if err != nil {
+			return stats, err
+		}
+		*item.target = int(removed)
 	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM oauth_refresh_grants
+WHERE family_id IN (
+  SELECT family_id FROM oauth_refresh_grants
+  GROUP BY family_id
+  HAVING MAX(json_extract(payload, '$.ExpiresAt')) <= ?
+)`, cutoff)
+	if err != nil {
+		return stats, err
+	}
+	removed, err := result.RowsAffected()
+	if err != nil {
+		return stats, err
+	}
+	stats.RefreshGrants = int(removed)
 	return stats, nil
 }
 func (s *Store[A]) Counts(ctx context.Context) (oauthserver.StateCounts, error) {
@@ -477,20 +531,19 @@ func (s *Store[A]) Counts(ctx context.Context) (oauthserver.StateCounts, error) 
 // Envelopes keep application principal serialization behind PrincipalCodec.
 type consentEnvelope[A any] struct {
 	Session   oauthserver.ConsentSession[A] `json:"session"`
-	Principal json.RawMessage               `json:"principal"`
+	Principal []byte                        `json:"principal"`
 }
 type codeEnvelope[A any] struct {
 	Record    oauthserver.AuthorizationCodeRecord[A] `json:"record"`
-	Principal json.RawMessage                        `json:"principal"`
+	Principal []byte                                 `json:"principal"`
 }
 type refreshEnvelope[A any] struct {
 	Grant     oauthserver.RefreshGrant[A] `json:"grant"`
-	Principal json.RawMessage             `json:"principal"`
+	Principal []byte                      `json:"principal"`
 }
 
-func encodePrincipal[A any](codec oauthserver.PrincipalCodec[A], principal oauthserver.Principal[A]) (json.RawMessage, error) {
-	data, err := codec.EncodePrincipal(principal)
-	return json.RawMessage(data), err
+func encodePrincipal[A any](codec oauthserver.PrincipalCodec[A], principal oauthserver.Principal[A]) ([]byte, error) {
+	return codec.EncodePrincipal(principal)
 }
 func digestBytes[T ~string](value T) []byte {
 	digest := oauthserver.DigestCredential(string(value))

@@ -85,7 +85,7 @@ func (s *Server[A]) metadata(w http.ResponseWriter, r *http.Request) {
 	for _, resource := range resources {
 		scopes = append(scopes, oauthresource.Scopes(resource.SupportedScopes)...)
 	}
-	s.writeJSON(w, http.StatusOK, authorizationMetadata{Issuer: s.config.Issuer, AuthorizationEndpoint: s.absolute(r, "/oauth/authorize"), TokenEndpoint: s.absolute(r, "/oauth/token"), RegistrationEndpoint: s.absolute(r, "/oauth/register"), RevocationEndpoint: s.absolute(r, "/oauth/revoke"), JWKSURI: s.absolute(r, "/jwks.json"), ResponseTypes: []string{"code"}, GrantTypes: []string{"authorization_code", "refresh_token"}, CodeChallengeMethods: []string{"S256"}, ScopesSupported: scopes})
+	s.writeJSON(w, http.StatusOK, authorizationMetadata{Issuer: s.config.Issuer, AuthorizationEndpoint: s.absolute("/oauth/authorize"), TokenEndpoint: s.absolute("/oauth/token"), RegistrationEndpoint: s.absolute("/oauth/register"), RevocationEndpoint: s.absolute("/oauth/revoke"), JWKSURI: s.absolute("/jwks.json"), ResponseTypes: []string{"code"}, GrantTypes: []string{"authorization_code", "refresh_token"}, CodeChallengeMethods: []string{"S256"}, ScopesSupported: scopes})
 }
 func (s *Server[A]) jwks(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -106,18 +106,29 @@ func (s *Server[A]) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.headers(w)
-	var input oauthserver.RegisterClientInput
-	if err := s.decodeJSON(w, r, &input); err != nil {
+	var request struct {
+		ClientName              string   `json:"client_name"`
+		RedirectURIs            []string `json:"redirect_uris"`
+		Scope                   string   `json:"scope"`
+		TokenEndpointAuthMethod string   `json:"token_endpoint_auth_method"`
+		GrantTypes              []string `json:"grant_types"`
+		ResponseTypes           []string `json:"response_types"`
+	}
+	if err := s.decodeJSON(w, r, &request); err != nil {
 		s.writeOAuthError(w, invalid(oauthserver.ErrorInvalidClientMetadata, "client metadata is invalid", err))
 		return
 	}
-	result, err := s.config.Engine.RegisterClient(r.Context(), input)
+	if request.TokenEndpointAuthMethod != "" && request.TokenEndpointAuthMethod != "none" {
+		s.writeOAuthError(w, invalid(oauthserver.ErrorInvalidClientMetadata, "only public clients are supported", oauthserver.ErrInvalid))
+		return
+	}
+	result, err := s.config.Engine.RegisterClient(r.Context(), oauthserver.RegisterClientInput{DisplayName: request.ClientName, RedirectURIs: request.RedirectURIs, RequestedScopes: strings.Fields(request.Scope)})
 	if err != nil {
 		s.writeOAuthError(w, err)
 		return
 	}
-	w.Header().Set("Location", s.absolute(r, "/oauth/register/"+url.PathEscape(string(result.Client.ID))))
-	s.writeJSON(w, http.StatusCreated, result.Client)
+	w.Header().Set("Location", s.absolute("/oauth/register/"+url.PathEscape(string(result.Client.ID))))
+	s.writeJSON(w, http.StatusCreated, map[string]any{"client_id": result.Client.ID, "client_name": result.Client.DisplayName, "redirect_uris": result.Client.RedirectURIs, "token_endpoint_auth_method": "none", "grant_types": []string{"authorization_code", "refresh_token"}, "response_types": []string{"code"}, "scope": result.Client.AllowedScopes.String()})
 }
 func (s *Server[A]) authorize(w http.ResponseWriter, r *http.Request) {
 	s.headers(w)
@@ -181,7 +192,7 @@ func (s *Server[A]) consentPost(w http.ResponseWriter, r *http.Request) {
 		s.method(w, http.MethodPost)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
+	if err := s.parseForm(w, r, "scope"); err != nil {
 		s.writeOAuthError(w, invalid(oauthserver.ErrorInvalidRequest, "consent form is invalid", err))
 		return
 	}
@@ -212,7 +223,7 @@ func (s *Server[A]) token(w http.ResponseWriter, r *http.Request) {
 		s.method(w, http.MethodPost)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
+	if err := s.parseForm(w, r); err != nil {
 		s.writeOAuthError(w, invalid(oauthserver.ErrorInvalidRequest, "token request is invalid", err))
 		return
 	}
@@ -242,7 +253,7 @@ func (s *Server[A]) revoke(w http.ResponseWriter, r *http.Request) {
 		s.method(w, http.MethodPost)
 		return
 	}
-	if err := r.ParseForm(); err != nil {
+	if err := s.parseForm(w, r); err != nil {
 		s.writeOAuthError(w, invalid(oauthserver.ErrorInvalidRequest, "revocation request is invalid", err))
 		return
 	}
@@ -273,6 +284,34 @@ func (s *Server[A]) IdentityCallbackHandler(authenticator CallbackAuthenticator[
 		http.Redirect(w, r, result.ConsentURL, http.StatusFound)
 	})
 }
+
+func (s *Server[A]) parseForm(w http.ResponseWriter, r *http.Request, arrayFields ...string) error {
+	contentType := r.Header.Get("Content-Type")
+	if contentType != "application/x-www-form-urlencoded" {
+		return errors.New("content type must be application/x-www-form-urlencoded")
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, s.config.Policy.MaxBodyBytes)
+	if err := r.ParseForm(); err != nil {
+		return err
+	}
+	allowedArrays := make(map[string]struct{}, len(arrayFields))
+	for _, field := range arrayFields {
+		allowedArrays[field] = struct{}{}
+	}
+	for key, values := range r.Form {
+		if len(key) > s.config.Policy.MaxFieldBytes || (len(values) > s.config.Policy.MaxArrayLength && hasKey(allowedArrays, key)) {
+			return errors.New("form limits exceeded")
+		}
+		for _, value := range values {
+			if len(value) > s.config.Policy.MaxFieldBytes {
+				return errors.New("form field is too large")
+			}
+		}
+	}
+	return nil
+}
+
+func hasKey(values map[string]struct{}, key string) bool { _, ok := values[key]; return ok }
 
 func (s *Server[A]) decodeJSON(w http.ResponseWriter, r *http.Request, destination any) error {
 	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
@@ -314,12 +353,8 @@ func (s *Server[A]) method(w http.ResponseWriter, allowed string) {
 	w.Header().Set("Allow", allowed)
 	w.WriteHeader(http.StatusMethodNotAllowed)
 }
-func (s *Server[A]) absolute(r *http.Request, path string) string {
-	scheme := "https"
-	if r.TLS == nil {
-		scheme = "http"
-	}
-	return scheme + "://" + r.Host + path
+func (s *Server[A]) absolute(path string) string {
+	return strings.TrimRight(s.config.Issuer, "/") + path
 }
 func invalid(code oauthserver.ErrorCode, description string, cause error) error {
 	return serverOAuthError(code, description, http.StatusBadRequest, cause)

@@ -46,7 +46,7 @@ func TestServerMetadataRegistrationAndBoundaries(t *testing.T) {
 	mux := http.NewServeMux()
 	server.Mount(mux)
 
-	request := httptest.NewRequest(http.MethodGet, "https://auth.example.test/.well-known/oauth-authorization-server", nil)
+	request := httptest.NewRequest(http.MethodGet, "https://internal.invalid/.well-known/oauth-authorization-server", nil)
 	response := httptest.NewRecorder()
 	mux.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || response.Header().Get("Cache-Control") != "no-store" {
@@ -56,7 +56,7 @@ func TestServerMetadataRegistrationAndBoundaries(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &metadata); err != nil {
 		t.Fatal(err)
 	}
-	if metadata["issuer"] != "https://auth.example.test" {
+	if metadata["issuer"] != "https://auth.example.test" || metadata["authorization_endpoint"] != "https://auth.example.test/oauth/authorize" {
 		t.Fatalf("metadata: %+v", metadata)
 	}
 
@@ -67,7 +67,7 @@ func TestServerMetadataRegistrationAndBoundaries(t *testing.T) {
 		t.Fatalf("POST metadata: %d %v", badResponse.Code, badResponse.Header())
 	}
 
-	body := strings.NewReader(`{"displayName":"test","redirectURIs":["https://client.example.test/callback"],"requestedScopes":["read"]}`)
+	body := strings.NewReader(`{"client_name":"test","redirect_uris":["https://client.example.test/callback"],"scope":"read"}`)
 	register := httptest.NewRequest(http.MethodPost, "https://auth.example.test/oauth/register", body)
 	register.Header.Set("Content-Type", "application/json")
 	registerResponse := httptest.NewRecorder()
