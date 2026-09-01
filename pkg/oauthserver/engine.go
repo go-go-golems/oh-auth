@@ -44,7 +44,7 @@ func (e *Engine[A]) RegisterClient(ctx context.Context, in RegisterClientInput) 
 	seen := make(map[RedirectURI]struct{}, len(in.RedirectURIs))
 	for _, raw := range in.RedirectURIs {
 		redirect, err := NewRedirectURI(raw)
-		if err != nil || !validOrigin(string(redirect), true) {
+		if err != nil || !validRedirectURI(string(redirect), true) {
 			return RegisterClientResult{}, oauthError(ErrorInvalidRedirectURI, "redirect URI is invalid", 400, err)
 		}
 		if len(redirect) > e.config.StatePolicy.Registration.MaxRedirectBytes {
@@ -96,6 +96,25 @@ type BeginAuthorizationInput struct {
 	Resource        string
 }
 
+func (e *Engine[A]) ValidateRedirect(ctx context.Context, clientIDRaw, redirectRaw string) (RedirectURI, error) {
+	clientID, err := NewClientID(clientIDRaw)
+	if err != nil {
+		return "", err
+	}
+	redirect, err := NewRedirectURI(redirectRaw)
+	if err != nil || !validRedirectURI(string(redirect), true) {
+		return "", ErrBinding
+	}
+	client, err := e.deps.Store.GetClient(ctx, clientID)
+	if err != nil {
+		return "", err
+	}
+	if !containsRedirect(client.RedirectURIs, redirect) {
+		return "", ErrBinding
+	}
+	return redirect, nil
+}
+
 type BeginAuthorizationResult struct {
 	Transaction  TransactionToken
 	LoginContext LoginContext
@@ -107,7 +126,7 @@ func (e *Engine[A]) BeginAuthorization(ctx context.Context, in BeginAuthorizatio
 		return BeginAuthorizationResult{}, invalidArgument("authorization request is invalid", err)
 	}
 	redirect, err := NewRedirectURI(in.RedirectURI)
-	if err != nil || !validOrigin(string(redirect), true) {
+	if err != nil || !validRedirectURI(string(redirect), true) {
 		return BeginAuthorizationResult{}, oauthError(ErrorInvalidRedirectURI, "redirect URI is invalid", 400, err)
 	}
 	challenge, err := NewPKCEChallenge(in.CodeChallenge, in.ChallengeMethod)
@@ -332,6 +351,9 @@ func (e *Engine[A]) Refresh(ctx context.Context, in RefreshInput) (TokenResponse
 	if revalidation.Status == RevalidationIneligible {
 		_ = e.deps.Store.RevokeRefreshFamily(ctx, grant.FamilyID, now)
 		return TokenResponse{}, invalidGrant(ErrRevoked)
+	}
+	if revalidation.Principal.Subject == "" || revalidation.Principal.Subject != grant.Principal.Subject {
+		return TokenResponse{}, oauthError(ErrorTemporary, "identity could not be revalidated", 503, ErrBinding)
 	}
 	resource, err := e.deps.Resources.LookupResource(ctx, grant.Resource)
 	if err != nil {

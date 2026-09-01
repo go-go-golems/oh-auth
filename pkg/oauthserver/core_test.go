@@ -60,7 +60,8 @@ func TestEngineOAuthLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	principal := oauthserver.Principal[struct{}]{Subject: oauthserver.Subject("employee-1"), DisplayName: "Employee", Email: "employee@example.test"}
-	engine, err := oauthserver.New(config, oauthserver.Dependencies[struct{}]{Store: store, Resources: resources, Scopes: memorytest.ScopePolicy[struct{}]{Available: scopes}, Revalidator: memorytest.Revalidator[struct{}]{Result: oauthserver.Revalidation[struct{}]{Status: oauthserver.RevalidationEligible, Principal: principal}}, Tokens: &memorytest.TokenService[struct{}]{Issuer: config.Issuer}, Secrets: secrets, Clock: clock})
+	revalidator := &memorytest.Revalidator[struct{}]{Result: oauthserver.Revalidation[struct{}]{Status: oauthserver.RevalidationEligible, Principal: principal}}
+	engine, err := oauthserver.New(config, oauthserver.Dependencies[struct{}]{Store: store, Resources: resources, Scopes: memorytest.ScopePolicy[struct{}]{Available: scopes}, Revalidator: revalidator, Tokens: &memorytest.TokenService[struct{}]{Issuer: config.Issuer}, Secrets: secrets, Clock: clock})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,6 +109,11 @@ func TestEngineOAuthLifecycle(t *testing.T) {
 	if tokens.AccessToken == "" || tokens.RefreshToken == "" || tokens.Scopes.String() != "documents:read" {
 		t.Fatalf("unexpected token response: %+v", tokens)
 	}
+	revalidator.Result = oauthserver.Revalidation[struct{}]{Status: oauthserver.RevalidationEligible, Principal: oauthserver.Principal[struct{}]{Subject: "other-employee"}}
+	if _, err := engine.Refresh(ctx, oauthserver.RefreshInput{RefreshToken: tokens.RefreshToken, ClientID: string(registered.Client.ID)}); err == nil {
+		t.Fatal("refresh accepted revalidation for another subject")
+	}
+	revalidator.Result = oauthserver.Revalidation[struct{}]{Status: oauthserver.RevalidationEligible, Principal: principal}
 	refreshed, err := engine.Refresh(ctx, oauthserver.RefreshInput{RefreshToken: tokens.RefreshToken, ClientID: string(registered.Client.ID)})
 	if err != nil {
 		t.Fatal(err)

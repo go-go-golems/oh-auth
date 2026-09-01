@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -93,6 +94,34 @@ func TestServerMetadataRegistrationAndBoundaries(t *testing.T) {
 	mux.ServeHTTP(unsupportedResponse, unsupported)
 	if unsupportedResponse.Code != http.StatusBadRequest {
 		t.Fatalf("unsupported content type status = %d", unsupportedResponse.Code)
+	}
+}
+
+func TestTrustedAuthorizationErrorsReturnToClient(t *testing.T) {
+	server, _ := newServer(t)
+	mux := http.NewServeMux()
+	server.Mount(mux)
+	register := httptest.NewRequest(http.MethodPost, "https://auth.example.test/oauth/register", strings.NewReader(`{"client_name":"test","redirect_uris":["https://client.example.test/callback"],"scope":"read"}`))
+	register.Header.Set("Content-Type", "application/json")
+	registeredResponse := httptest.NewRecorder()
+	mux.ServeHTTP(registeredResponse, register)
+	var registered map[string]any
+	if err := json.Unmarshal(registeredResponse.Body.Bytes(), &registered); err != nil {
+		t.Fatal(err)
+	}
+	values := url.Values{"client_id": {registered["client_id"].(string)}, "redirect_uri": {"https://client.example.test/callback"}, "response_type": {"code"}, "state": {"state-1"}, "code_challenge": {strings.Repeat("A", 43)}, "code_challenge_method": {"S256"}, "scope": {"read"}, "resource": {"https://unknown.example.test/api"}}
+	request := httptest.NewRequest(http.MethodGet, "https://internal.invalid/oauth/authorize?"+values.Encode(), nil)
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusFound {
+		t.Fatalf("authorization error status = %d body=%s", response.Code, response.Body.String())
+	}
+	location, err := url.Parse(response.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if location.Host != "client.example.test" || location.Query().Get("state") != "state-1" || location.Query().Get("error") != "invalid_target" {
+		t.Fatalf("unexpected error redirect: %s", location)
 	}
 }
 

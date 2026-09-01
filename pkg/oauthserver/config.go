@@ -98,7 +98,9 @@ func (c Config) Validate() error {
 			return invalidValue("resource scopes")
 		}
 	}
-	if c.StatePolicy.Registration.MaxClients <= 0 || c.StatePolicy.Capacity.MaxCodes <= 0 || c.HTTP.MaxBodyBytes <= 0 {
+	registration := c.StatePolicy.Registration
+	capacity := c.StatePolicy.Capacity
+	if registration.MaxClients <= 0 || registration.MaxRedirectURIs <= 0 || registration.MaxDisplayName <= 0 || registration.MaxScopeCount <= 0 || registration.MaxRedirectBytes <= 0 || capacity.MaxAuthorizations <= 0 || capacity.MaxConsents <= 0 || capacity.MaxCodes <= 0 || capacity.MaxRefreshGrants <= 0 || c.StatePolicy.Retention.ConsumedState < 0 || c.StatePolicy.Retention.RevokedState < 0 || c.HTTP.MaxBodyBytes <= 0 || c.HTTP.MaxFieldBytes <= 0 || c.HTTP.MaxArrayLength <= 0 {
 		return invalidValue("state policy")
 	}
 	return nil
@@ -112,7 +114,22 @@ func validOrigin(raw string, allowLoopback bool) bool {
 	if u.Scheme == "https" {
 		return true
 	}
-	return allowLoopback && u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1" || u.Hostname() == "[::1]")
+	return allowLoopback && u.Scheme == "http" && isLoopback(u.Hostname())
+}
+
+func validRedirectURI(raw string, allowLoopback bool) bool {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" || u.User != nil || u.Fragment != "" {
+		return false
+	}
+	if u.Scheme == "https" {
+		return true
+	}
+	return allowLoopback && u.Scheme == "http" && isLoopback(u.Hostname())
+}
+
+func isLoopback(host string) bool {
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 func stringsToScopes(values []string) []Scope {

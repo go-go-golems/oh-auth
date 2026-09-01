@@ -139,6 +139,10 @@ func (s *Server[A]) authorize(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
 	result, err := s.config.Engine.BeginAuthorization(r.Context(), oauthserver.BeginAuthorizationInput{ClientID: query.Get("client_id"), RedirectURI: query.Get("redirect_uri"), ResponseType: query.Get("response_type"), State: query.Get("state"), CodeChallenge: query.Get("code_challenge"), ChallengeMethod: query.Get("code_challenge_method"), Scopes: strings.Fields(query.Get("scope")), Resource: query.Get("resource")})
 	if err != nil {
+		if redirect, redirectErr := s.config.Engine.ValidateRedirect(r.Context(), query.Get("client_id"), query.Get("redirect_uri")); redirectErr == nil && query.Get("state") != "" {
+			s.redirectAuthorizationError(w, r, redirect, query.Get("state"), err)
+			return
+		}
 		s.writeOAuthError(w, err)
 		return
 	}
@@ -353,6 +357,24 @@ func (s *Server[A]) method(w http.ResponseWriter, allowed string) {
 	w.Header().Set("Allow", allowed)
 	w.WriteHeader(http.StatusMethodNotAllowed)
 }
+func (s *Server[A]) redirectAuthorizationError(w http.ResponseWriter, r *http.Request, redirect oauthserver.RedirectURI, state string, err error) {
+	var oauthErr *oauthserver.OAuthError
+	if !errors.As(err, &oauthErr) {
+		oauthErr = serverOAuthError(oauthserver.ErrorTemporary, "authorization is temporarily unavailable", http.StatusServiceUnavailable, err)
+	}
+	destination, parseErr := url.Parse(string(redirect))
+	if parseErr != nil {
+		s.writeOAuthError(w, err)
+		return
+	}
+	query := destination.Query()
+	query.Set("error", string(oauthErr.Code))
+	query.Set("error_description", oauthErr.SafeDescription)
+	query.Set("state", state)
+	destination.RawQuery = query.Encode()
+	http.Redirect(w, r, destination.String(), http.StatusFound)
+}
+
 func (s *Server[A]) absolute(path string) string {
 	return strings.TrimRight(s.config.Issuer, "/") + path
 }
