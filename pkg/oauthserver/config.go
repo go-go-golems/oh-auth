@@ -32,11 +32,12 @@ type StatePolicy struct {
 }
 
 type RegistrationPolicy struct {
-	MaxClients       int
-	MaxRedirectURIs  int
-	MaxDisplayName   int
-	MaxScopeCount    int
-	MaxRedirectBytes int
+	MaxClients          int
+	MaxRedirectURIs     int
+	MaxDisplayName      int
+	MaxScopeCount       int
+	MaxRedirectBytes    int
+	UnverifiedClientTTL time.Duration
 }
 
 type StateCapacity struct {
@@ -68,7 +69,7 @@ func DefaultConfig(issuer string, resources []ResourceConfig, scopes ScopeSet) C
 		ConsentTTL:      10 * time.Minute,
 		CodeTTL:         time.Minute,
 		StatePolicy: StatePolicy{
-			Registration: RegistrationPolicy{MaxClients: 256, MaxRedirectURIs: 16, MaxDisplayName: 128, MaxScopeCount: 64, MaxRedirectBytes: 2048},
+			Registration: RegistrationPolicy{MaxClients: 256, MaxRedirectURIs: 16, MaxDisplayName: 128, MaxScopeCount: 64, MaxRedirectBytes: 2048, UnverifiedClientTTL: 24 * time.Hour},
 			Capacity:     StateCapacity{MaxAuthorizations: 1024, MaxConsents: 1024, MaxCodes: 1024, MaxRefreshGrants: 4096},
 			Retention:    RetentionPolicy{ConsumedState: time.Hour, RevokedState: 24 * time.Hour},
 		},
@@ -77,7 +78,7 @@ func DefaultConfig(issuer string, resources []ResourceConfig, scopes ScopeSet) C
 }
 
 func (c Config) Validate() error {
-	if !validOrigin(c.Issuer, false) {
+	if !validIssuer(c.Issuer) {
 		return invalidValue("issuer")
 	}
 	if len(c.Resources) == 0 || c.AccessTTL <= 0 || c.RefreshTTL <= 0 || c.TransactionTTL <= 0 || c.ConsentTTL <= 0 || c.CodeTTL <= 0 {
@@ -100,10 +101,18 @@ func (c Config) Validate() error {
 	}
 	registration := c.StatePolicy.Registration
 	capacity := c.StatePolicy.Capacity
-	if registration.MaxClients <= 0 || registration.MaxRedirectURIs <= 0 || registration.MaxDisplayName <= 0 || registration.MaxScopeCount <= 0 || registration.MaxRedirectBytes <= 0 || capacity.MaxAuthorizations <= 0 || capacity.MaxConsents <= 0 || capacity.MaxCodes <= 0 || capacity.MaxRefreshGrants <= 0 || c.StatePolicy.Retention.ConsumedState < 0 || c.StatePolicy.Retention.RevokedState < 0 || c.HTTP.MaxBodyBytes <= 0 || c.HTTP.MaxFieldBytes <= 0 || c.HTTP.MaxArrayLength <= 0 {
+	if registration.MaxClients <= 0 || registration.MaxRedirectURIs <= 0 || registration.MaxDisplayName <= 0 || registration.MaxScopeCount <= 0 || registration.MaxRedirectBytes <= 0 || registration.UnverifiedClientTTL <= 0 || capacity.MaxAuthorizations <= 0 || capacity.MaxConsents <= 0 || capacity.MaxCodes <= 0 || capacity.MaxRefreshGrants <= 0 || c.StatePolicy.Retention.ConsumedState < 0 || c.StatePolicy.Retention.RevokedState < 0 || c.HTTP.MaxBodyBytes <= 0 || c.HTTP.MaxFieldBytes <= 0 || c.HTTP.MaxArrayLength <= 0 {
 		return invalidValue("state policy")
 	}
 	return nil
+}
+
+func validIssuer(raw string) bool {
+	if !validOrigin(raw, false) {
+		return false
+	}
+	u, _ := url.Parse(raw)
+	return u.Path == "" || u.Path == "/"
 }
 
 func validOrigin(raw string, allowLoopback bool) bool {

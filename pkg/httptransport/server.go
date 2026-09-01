@@ -127,7 +127,6 @@ func (s *Server[A]) register(w http.ResponseWriter, r *http.Request) {
 		s.writeOAuthError(w, err)
 		return
 	}
-	w.Header().Set("Location", s.absolute("/oauth/register/"+url.PathEscape(string(result.Client.ID))))
 	s.writeJSON(w, http.StatusCreated, map[string]any{"client_id": result.Client.ID, "client_name": result.Client.DisplayName, "redirect_uris": result.Client.RedirectURIs, "token_endpoint_auth_method": "none", "grant_types": []string{"authorization_code", "refresh_token"}, "response_types": []string{"code"}, "scope": result.Client.AllowedScopes.String()})
 }
 func (s *Server[A]) authorize(w http.ResponseWriter, r *http.Request) {

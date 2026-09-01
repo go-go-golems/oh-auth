@@ -155,6 +155,9 @@ func (e *Engine[A]) BeginAuthorization(ctx context.Context, in BeginAuthorizatio
 	if !requested.IsSubsetOf(client.AllowedScopes) || !requested.IsSubsetOf(resource.SupportedScopes) || !requested.IsSubsetOf(e.config.SupportedScopes) {
 		return BeginAuthorizationResult{}, oauthError(ErrorInvalidScope, "requested scopes are not allowed", 400, ErrInvalid)
 	}
+	if err := e.deps.Store.TouchClient(ctx, client.ID, e.deps.Clock.Now()); err != nil {
+		return BeginAuthorizationResult{}, mapStoreError(err, ErrorInvalidRequest)
+	}
 	token, err := e.deps.Secrets.NewTransactionToken()
 	if err != nil {
 		return BeginAuthorizationResult{}, oauthError(ErrorTemporary, "could not start authorization", 503, err)
@@ -177,6 +180,9 @@ type CompleteLoginResult struct {
 }
 
 func (e *Engine[A]) CompleteLogin(ctx context.Context, in CompleteLoginInput[A]) (CompleteLoginResult, error) {
+	if _, err := NewSubject(string(in.Principal.Subject)); err != nil {
+		return CompleteLoginResult{}, oauthError(ErrorAccessDenied, "authenticated principal is invalid", 400, err)
+	}
 	auth, err := e.deps.Store.GetAuthorization(ctx, DigestCredential(string(in.Transaction)))
 	if err != nil {
 		return CompleteLoginResult{}, invalidGrant(err)
@@ -345,15 +351,23 @@ func (e *Engine[A]) Refresh(ctx context.Context, in RefreshInput) (TokenResponse
 		return TokenResponse{}, invalidGrant(ErrBinding)
 	}
 	revalidation, err := e.deps.Revalidator.Revalidate(ctx, grant.Principal.Subject)
-	if err != nil || revalidation.Status == RevalidationUnknown {
+	if err != nil {
 		return TokenResponse{}, oauthError(ErrorTemporary, "identity could not be revalidated", 503, err)
 	}
-	if revalidation.Status == RevalidationIneligible {
-		_ = e.deps.Store.RevokeRefreshFamily(ctx, grant.FamilyID, now)
+	switch revalidation.Status {
+	case RevalidationUnknown:
+		return TokenResponse{}, oauthError(ErrorTemporary, "identity could not be revalidated", 503, ErrInvalid)
+	case RevalidationIneligible:
+		if err := e.deps.Store.RevokeRefreshFamily(ctx, grant.FamilyID, now); err != nil {
+			return TokenResponse{}, oauthError(ErrorTemporary, "identity revocation could not be persisted", 503, err)
+		}
 		return TokenResponse{}, invalidGrant(ErrRevoked)
-	}
-	if revalidation.Principal.Subject == "" || revalidation.Principal.Subject != grant.Principal.Subject {
-		return TokenResponse{}, oauthError(ErrorTemporary, "identity could not be revalidated", 503, ErrBinding)
+	case RevalidationEligible:
+		if revalidation.Principal.Subject == "" || revalidation.Principal.Subject != grant.Principal.Subject {
+			return TokenResponse{}, oauthError(ErrorTemporary, "identity could not be revalidated", 503, ErrBinding)
+		}
+	default:
+		return TokenResponse{}, oauthError(ErrorTemporary, "identity could not be revalidated", 503, ErrInvalid)
 	}
 	resource, err := e.deps.Resources.LookupResource(ctx, grant.Resource)
 	if err != nil {
@@ -387,8 +401,11 @@ func (e *Engine[A]) Revoke(ctx context.Context, in RevokeInput) error {
 		return nil
 	}
 	grant, err := e.deps.Store.GetRefreshGrant(ctx, DigestCredential(in.Token))
-	if err != nil || grant.ClientID != clientID {
+	if errors.Is(err, ErrNotFound) || (err == nil && grant.ClientID != clientID) {
 		return nil
+	}
+	if err != nil {
+		return err
 	}
 	return e.deps.Store.RevokeRefreshFamily(ctx, grant.FamilyID, e.deps.Clock.Now())
 }

@@ -22,6 +22,14 @@ func TestConfigRejectsUnusableOperationalLimits(t *testing.T) {
 	}
 }
 
+func TestConfigRejectsIssuerPath(t *testing.T) {
+	scopes, _ := oauthserver.NewScopeSet("read")
+	config := oauthserver.DefaultConfig("https://auth.example.test/base", []oauthserver.ResourceConfig{{ID: "https://resource.example.test/api", DisplayName: "resource", SupportedScopes: []string{"read"}}}, scopes)
+	if err := config.Validate(); err == nil {
+		t.Fatal("issuer path accepted without route-prefix support")
+	}
+}
+
 func TestRedirectURIQueryAndIPv6LoopbackAreSupported(t *testing.T) {
 	scopes, _ := oauthserver.NewScopeSet("read")
 	config := oauthserver.DefaultConfig("https://auth.example.test", []oauthserver.ResourceConfig{{ID: "https://resource.example.test/api", DisplayName: "resource", SupportedScopes: []string{"read"}}}, scopes)

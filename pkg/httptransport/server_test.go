@@ -87,6 +87,9 @@ func TestServerMetadataRegistrationAndBoundaries(t *testing.T) {
 	if registration["client_id"] == nil || registration["client_name"] != "test" {
 		t.Fatalf("non-RFC registration response: %+v", registration)
 	}
+	if location := registerResponse.Header().Get("Location"); location != "" {
+		t.Fatalf("registration advertised unsupported management resource %q", location)
+	}
 
 	unsupported := httptest.NewRequest(http.MethodPost, "https://auth.example.test/oauth/register", strings.NewReader(`{}`))
 	unsupported.Header.Set("Content-Type", "text/plain")

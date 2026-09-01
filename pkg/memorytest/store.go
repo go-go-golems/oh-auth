@@ -25,6 +25,12 @@ func NewStore[A any]() *Store[A] {
 func (s *Store[A]) RegisterClient(_ context.Context, client oauthserver.Client, policy oauthserver.StatePolicy) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	now := time.Now().UTC()
+	for id, existing := range s.clients {
+		if existing.Trust == oauthserver.ClientTrustUnverified && !existing.LastUsedAt.After(now.Add(-policy.Registration.UnverifiedClientTTL)) && !s.clientHasLiveAuthorizationLocked(id, now) {
+			delete(s.clients, id)
+		}
+	}
 	if len(s.clients) >= policy.Registration.MaxClients {
 		return oauthserver.ErrCapacity
 	}
@@ -234,6 +240,15 @@ func (s *Store[A]) Prune(_ context.Context, policy oauthserver.StatePolicy) (oau
 	}
 	return stats, nil
 }
+func (s *Store[A]) clientHasLiveAuthorizationLocked(id oauthserver.ClientID, now time.Time) bool {
+	for _, state := range s.authorizers {
+		if state.ClientID == id && state.ConsumedAt.IsZero() && state.ExpiresAt.After(now) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Store[A]) Counts(_ context.Context) (oauthserver.StateCounts, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

@@ -79,7 +79,11 @@ func (s *Store[A]) RegisterClient(ctx context.Context, client oauthserver.Client
 		return err
 	}
 	defer rollback(tx)
-	if _, err := pruneTx(ctx, tx, policy, time.Now().UTC()); err != nil {
+	now := time.Now().UTC()
+	if _, err := pruneTx(ctx, tx, policy, now); err != nil {
+		return err
+	}
+	if _, err := pruneClientsTx(ctx, tx, policy.Registration, now); err != nil {
 		return err
 	}
 	var count int
@@ -104,7 +108,8 @@ func (s *Store[A]) RegisterClient(ctx context.Context, client oauthserver.Client
 }
 func (s *Store[A]) GetClient(ctx context.Context, id oauthserver.ClientID) (oauthserver.Client, error) {
 	var payload []byte
-	err := s.db.QueryRowContext(ctx, "SELECT payload FROM oauth_clients WHERE id=?", id).Scan(&payload)
+	var lastUsed string
+	err := s.db.QueryRowContext(ctx, "SELECT payload,last_used_at FROM oauth_clients WHERE id=?", id).Scan(&payload, &lastUsed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return oauthserver.Client{}, oauthserver.ErrNotFound
 	}
@@ -114,6 +119,10 @@ func (s *Store[A]) GetClient(ctx context.Context, id oauthserver.ClientID) (oaut
 	var client oauthserver.Client
 	if err := json.Unmarshal(payload, &client); err != nil {
 		return oauthserver.Client{}, fmt.Errorf("decode client: %w", err)
+	}
+	client.LastUsedAt, err = time.Parse(time.RFC3339Nano, lastUsed)
+	if err != nil {
+		return oauthserver.Client{}, fmt.Errorf("decode client activity: %w", err)
 	}
 	return client, nil
 }
@@ -519,6 +528,23 @@ WHERE family_id IN (
 	stats.RefreshGrants = int(removed)
 	return stats, nil
 }
+func pruneClientsTx(ctx context.Context, tx *sql.Tx, policy oauthserver.RegistrationPolicy, now time.Time) (int, error) {
+	cutoff := now.Add(-policy.UnverifiedClientTTL).UTC().Format(time.RFC3339Nano)
+	result, err := tx.ExecContext(ctx, `DELETE FROM oauth_clients
+WHERE last_used_at <= ?
+  AND json_extract(payload, '$.Trust') = ?
+  AND id NOT IN (
+    SELECT json_extract(payload, '$.ClientID')
+    FROM oauth_authorizations
+    WHERE consumed_at IS NULL AND json_extract(payload, '$.ExpiresAt') > ?
+  )`, cutoff, oauthserver.ClientTrustUnverified, now.UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		return 0, err
+	}
+	removed, err := result.RowsAffected()
+	return int(removed), err
+}
+
 func (s *Store[A]) Counts(ctx context.Context) (oauthserver.StateCounts, error) {
 	var counts oauthserver.StateCounts
 	for _, item := range []struct {
