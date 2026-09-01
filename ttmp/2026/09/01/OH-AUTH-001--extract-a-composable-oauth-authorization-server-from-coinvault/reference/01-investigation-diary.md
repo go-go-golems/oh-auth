@@ -1071,3 +1071,85 @@ Create  a detailed analysis / code / implementation / architecture review  that 
 - PR review counts: 5 findings on `d2c03e8`, 5 on `eea2048`, 1 CodeQL annotation on `6df26ff`, and 4 findings on `6cf0ff2`.
 - Direct package statement profile: 48.8% total; HTTP 38.5%, JWT 79.0%, oauthserver 60.2%, SQLite 60.0%, oauthresource 0%.
 - No conformance or fuzz test files existed at review time.
+
+## Step 14: Close protocol, lifecycle, and revocation review blockers
+
+This phase addressed the four findings from the final PR review and the related false-success paths identified by the senior review. The implementation deliberately chooses a small v0.1 contract: issuers are origin-only, registration does not advertise unimplemented management, unverified clients expire after bounded idle time, and durable revocation errors remain visible as temporary failures.
+
+The fixes also close nearby instances of the same invariants. Revalidation now handles its enum exhaustively, malformed callback principals are rejected before state lookup, explicit revocation distinguishes an unknown token from a failed store, and successful authorization updates client activity.
+
+### Prompt Context
+
+**User prompt (verbatim):** "finish documenting and uploading, then go through all the items you brought up and make the library solid, without adding unnecessary smoke tests or additional complexity. We want to ship.
+
+commit at appropriate intervals and keep a detailed diary as you work (using the diary format from the skill). Print out a brutalist work slip with the plan / different phases for the ticket. then before stsarting a phase, plrint a split about the phase, and print one when the phase is done.
+
+[REMINDER] Output a <summary>...</summary> block at the VERY END of your response. This is mandatory."
+
+**Assistant interpretation:** Finish publishing the review, then remediate every concrete and systemic issue with minimal coherent designs, deterministic validation, phase commits, diary entries, and printed start/completion slips; do not add deployed smoke complexity.
+
+**Inferred user intent:** Turn the reviewed prototype into a release-worthy reusable OAuth library quickly without papering over security defects or expanding product scope.
+
+**Commit (code):** `1d0f453820bda7fb535ca35afe9a187ffca3f331` — "fix: close OAuth protocol review blockers"
+
+### What I did
+
+- Added a 24-hour default idle TTL for unverified dynamic clients and positive config validation.
+- Pruned idle unverified SQLite and memory clients before registration capacity checks while preserving clients referenced by live authorization transactions.
+- Updated client activity on authorization and made SQLite `GetClient` read the authoritative activity column.
+- Rejected non-root issuer paths instead of retaining incomplete mount-prefix support.
+- Removed the unsupported registration-management `Location` header.
+- Propagated failed ineligibility-family revocation as `temporarily_unavailable`.
+- Made revalidation status handling exhaustive and fail closed.
+- Distinguished unknown revocation tokens from infrastructure lookup failures.
+- Rejected invalid principal subjects before consuming login state.
+- Added focused lifecycle, issuer, registration response, revocation failure, enum, and principal tests.
+
+### Why
+
+- A fixed client count without expiry is a durable unauthenticated denial of service.
+- OAuth non-disclosure applies to unknown tokens, not database failures.
+- Origin-only issuer support is simpler and safer than claiming path routing that the mux and consent UI do not implement.
+
+### What worked
+
+- `GOWORK=off go test ./... -count=1` passed.
+- The pre-commit test and golangci-lint hooks passed with zero issues.
+- The lifecycle tests prove idle capacity recovery and preservation of clients with live authorization state.
+- Fault-store tests prove revocation failures are visible and malformed revalidation statuses fail closed.
+
+### What didn't work
+
+- N/A. The focused implementation and tests passed on the first full package run.
+
+### What I learned
+
+- The existing `last_used_at` column was suitable for a minimal client lease once reads and writes agreed on it.
+- Rejecting issuer paths removes multiple coupled routing bugs with less surface area than adding a prefix abstraction during stabilization.
+
+### What was tricky to build
+
+- Client eviction cannot delete an idle client while a login is in flight because `CompleteLogin` re-reads the client. The SQLite eviction query excludes clients referenced by live, unconsumed authorization records.
+- Revocation must preserve RFC non-disclosure for unknown tokens while still surfacing infrastructure errors; sentinel error classification provides that distinction.
+
+### What warrants a second pair of eyes
+
+- Review the default 24-hour unverified client idle TTL and whether CoinVault operations should override it.
+- Confirm origin-only issuer support matches deployment configuration.
+- Review client activity touch ordering before transaction creation.
+
+### What should be done in the future
+
+- Apply deployment-level request rate limiting to public DCR; database lifecycle is recovery, not a substitute for edge abuse controls.
+- Add client management only under a separate RFC 7592 requirement.
+
+### Code review instructions
+
+- Start at `oauthserver.Config.RegistrationPolicy`, `Engine.BeginAuthorization`, `Engine.Refresh`, and `Engine.Revoke`.
+- Then inspect `sqlitestore.pruneClientsTx` and `client_lifecycle_test.go`.
+- Run `GOWORK=off go test ./... -count=1`.
+
+### Technical details
+
+- Final-review findings addressed: `3907604521`, `3907604555`, `3907604565`, and `3907604576`.
+- New fault tests use a store decorator that overrides only refresh lookup/revocation while embedding the full port.

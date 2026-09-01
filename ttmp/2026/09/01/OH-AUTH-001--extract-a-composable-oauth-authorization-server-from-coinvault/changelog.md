@@ -128,3 +128,13 @@ Step 13: Reconstructed all PR #1 review rounds, corrected the premature green st
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/code-review/01-senior-review-of-pr-1-architecture-implementation-and-review-process.md — Intern-oriented review and remediation plan
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/scripts/03-probe-sqlite-boundaries.sh — Reproduces raw credential persistence and stale client activity
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/sources/github/pr-1-review-comments.json — Complete PR inline comment snapshot
+
+## 2026-09-01
+
+Step 14: Closed final PR protocol blockers with recoverable unverified-client capacity, durable revocation failure propagation, origin-only issuers, and removal of the dangling registration Location (commit 1d0f453).
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/httptransport/server.go — Registration response no longer advertises missing management
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/oauthserver/engine.go — Exhaustive revalidation and correct revocation errors
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/sqlitestore/store.go — Recoverable client lifecycle and authoritative activity reads
