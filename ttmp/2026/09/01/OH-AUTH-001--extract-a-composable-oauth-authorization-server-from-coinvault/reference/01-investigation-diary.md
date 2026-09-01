@@ -758,7 +758,11 @@ The review fixes protect interoperability and resource bounds at the actual boun
 
 ### Prompt Context
 
-**User prompt (verbatim):** "Address code review issues: https://github.com/go-go-golems/oh-auth/pull/1 too in the previous ticket\n\n[REMINDER] Output a <summary>...</summary> block at the VERY END of your response. This is mandatory."
+**User prompt (verbatim):**
+
+```text
+Address code review issues: https://github.com/go-go-golems/oh-auth/pull/1 too in the previous ticket\n\n[REMINDER] Output a <summary>...</summary> block at the VERY END of your response. This is mandatory.
+```
 
 **Assistant interpretation:** Read PR #1's review comments, implement every requested fix in oh-auth, and update the prior CoinVault extraction ticket/dependency as needed.
 
@@ -986,3 +990,84 @@ The library and CoinVault consumer now point at the same corrected branch, and t
 - New review finding IDs: `3907446467`, `3907446479`, `3907446487`, `3907446493`, and `3907446498`.
 - oh-auth final review-round commit: `6df26ff2628dddba1f452ec9e76e6a36ccf97d1c`.
 - CoinVault consumer commit: `cf04b4d`.
+
+## Step 13: Reconstruct the full PR review and identify systemic gaps
+
+This step revisited every inline finding on PR #1, including comments on superseded commits, and compared them with the current source, tests, design promises, commit history, and CoinVault integration. The resulting senior review is written as a standalone intern-oriented architecture guide rather than a list of isolated comments.
+
+The review corrected an important status error: the prior handoff said the latest Codex review had no findings, but the completed review of head `6cf0ff2` added four unresolved comments. Local probes also found raw transaction and consent credentials in SQLite payloads and a stale `TouchClient` representation, proving that passing CI did not establish the documented storage and lifecycle contracts.
+
+### Prompt Context
+
+**User prompt (verbatim):** "We are stepping in for the junior developer who so far did the actual work on the project. Go over the code review findings (even the older ones) in https://github.com/go-go-golems/oh-auth/pull/1
+
+and go over the local implementation and code, and see what needs to be addressed, what is actually a systemic issue, why things were not caught, etc...
+
+Create  a detailed analysis / code / implementation / architecture review  that is for a new intern, explaining all the parts of the system needed to understand what it is, with prose paragraphs and bullet point sand pseudocode and diagrams and api references and file references. It should be very clear and technical. Store in the ticket and the nupload to remarkable."
+
+**Assistant interpretation:** Perform a senior, evidence-backed review of every PR round and the complete local implementation, distinguish fixed symptoms from systemic defects, explain why normal review and CI missed them, and publish an intern-ready remediation guide.
+
+**Inferred user intent:** Replace premature completion confidence with an accurate technical assessment that a new engineer can use to make the library genuinely shippable.
+
+### What I did
+
+- Captured all 15 PR inline comments in `sources/github/pr-1-review-comments.json` with a reproducible script.
+- Mapped each comment to current source and classified it as fixed, partially fixed, unresolved, or a trust-model concern.
+- Reviewed every oh-auth package, current tests, CI, README, Makefile, design requirements, diary, commit sizes, and CoinVault consumer wiring.
+- Measured current direct package coverage and enumerated untested handlers/transitions.
+- Added and ran `scripts/03-probe-sqlite-boundaries.sh` to inspect actual durable payloads and client activity behavior.
+- Wrote `code-review/01-senior-review-of-pr-1-architecture-implementation-and-review-process.md` with architecture diagrams, flow explanations, root causes, API sketches, decision records, phased remediation, tests, and file references.
+- Added explicit ticket tasks for remediation and conformance work.
+- Printed the five-phase shipping plan and Phase 0 start slips.
+
+### Why
+
+- Security review comments need to be generalized into invariants; otherwise each narrow fix exposes the next instance of the same defect.
+- A new contributor needs the OAuth roles, state machine, package map, evidence, and implementation sequence before changing security-sensitive code.
+
+### What worked
+
+- `GOWORK=off go test ./... -count=1 -coverprofile=/tmp/oh-auth-cover.out` passed and produced actionable coverage evidence.
+- GitHub's REST and GraphQL APIs exposed all comments, reviewed commits, and thread states.
+- The SQLite probe reproduced `oauth_authorizations_contains_raw_credential=True`, `oauth_consents_contains_raw_credential=True`, and `touch_visible_through_GetClient=false`.
+- The package dependency graph confirmed that `oauthserver` remains application-, HTTP-, database-, JWT-, MCP-, and RAG-independent.
+
+### What didn't work
+
+- The first raw `gh api` response exceeded tool output limits and showed only the tail. Saving the complete JSON under ticket sources and summarizing it with `jq` recovered all 15 comments.
+- The previous session's final status was wrong because it inspected an earlier review state before the Codex review for exact head `6cf0ff2` completed.
+- The first real reMarkable upload failed after a successful dry run because Pandoc interpreted a literal `\\n` sequence in an older verbatim prompt as a LaTeX command: `! Undefined control sequence. l.4596 ticket\\n`. Wrapping that unchanged verbatim prompt in a fenced text block made it render-safe.
+
+### What I learned
+
+- The strongest local design choices remain worth preserving, but the store's use of transactions was mistaken for authoritative transition validation.
+- The design already specified most missing tests; the failure was converting prose acceptance criteria into executable gates.
+- Large package-sized commits and non-failing fakes made adversarial dependency behavior difficult to review and impossible to exercise.
+
+### What was tricky to build
+
+- Older GitHub threads remain unresolved even when code changed, and some are not marked outdated because their line survived later patches. Current applicability had to be determined from source behavior, not thread metadata alone.
+- The raw-credential defect was hidden by digest primary keys. Only inspecting serialized payload bytes showed that raw transaction and consent handles remained durable.
+
+### What warrants a second pair of eyes
+
+- Review the severity and remediation ordering in Sections 10–19 of the senior review.
+- Confirm whether v0.1 should reject issuer paths rather than implement mount-prefix support.
+- Confirm the minimal recoverable lifecycle for unauthenticated dynamic clients.
+
+### What should be done in the future
+
+- Never declare an asynchronous reviewer green until its completed result references the exact current head and all current-head comments are classified.
+- Convert every security design checklist item into a named deterministic test or explicitly defer/remove it.
+
+### Code review instructions
+
+- Begin with the executive summary and PR chronology in the senior review.
+- Run `scripts/03-probe-sqlite-boundaries.sh` to reproduce the two persistence/lifecycle findings.
+- Compare design Sections 12, 18, and 19 with the implementation-gap sections of the review.
+
+### Technical details
+
+- PR review counts: 5 findings on `d2c03e8`, 5 on `eea2048`, 1 CodeQL annotation on `6df26ff`, and 4 findings on `6cf0ff2`.
+- Direct package statement profile: 48.8% total; HTTP 38.5%, JWT 79.0%, oauthserver 60.2%, SQLite 60.0%, oauthresource 0%.
+- No conformance or fuzz test files existed at review time.

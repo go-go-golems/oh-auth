@@ -13,3 +13,6 @@
 - [x] Validate and upload the ticket bundle to reMarkable <!-- t:9dqj -->
 - [x] Review design against OWASP ASVS, cheat sheets, API Security, and WSTG guidance <!-- t:z926 -->
 - [x] Separate deferred OWASP controls and consolidate smoke into one final acceptance run <!-- t:6yow -->
+- [x] Complete senior architecture and systemic code review of all PR #1 findings <!-- t:ry0c -->
+- [ ] Resolve merge-blocking PR #1 and local security findings from the senior review <!-- t:meew -->
+- [ ] Build shared store HTTP engine and fault-injection conformance suites before release <!-- t:ox38 -->

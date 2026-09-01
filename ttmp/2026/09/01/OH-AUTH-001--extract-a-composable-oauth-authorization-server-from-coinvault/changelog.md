@@ -118,3 +118,13 @@ Step 12: Closed the second Codex review round with subject-bound refresh revalid
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/httptransport/server.go — Safe authorization error redirects
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/oauthserver/config.go — Complete operational-limit and URL validation
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/oauthserver/engine.go — Subject binding and trusted redirect validation
+
+## 2026-09-01
+
+Step 13: Reconstructed all PR #1 review rounds, corrected the premature green status, and added a senior systemic architecture/implementation review with reproducible GitHub and SQLite evidence.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/code-review/01-senior-review-of-pr-1-architecture-implementation-and-review-process.md — Intern-oriented review and remediation plan
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/scripts/03-probe-sqlite-boundaries.sh — Reproduces raw credential persistence and stale client activity
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/sources/github/pr-1-review-comments.json — Complete PR inline comment snapshot

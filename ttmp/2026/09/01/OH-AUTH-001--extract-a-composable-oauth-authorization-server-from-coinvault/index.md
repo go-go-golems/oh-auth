@@ -31,6 +31,7 @@ Research and design are complete. Repository normalization, implementation, cons
 
 - [Composable OAuth Server Extraction Analysis, Design, and Implementation Guide](design-doc/01-composable-oauth-server-extraction-analysis-design-and-implementation-guide.md)
 - [Deferred OWASP Hardening and Higher Assurance Roadmap](design-doc/02-deferred-owasp-hardening-and-higher-assurance-roadmap.md)
+- [Senior Review of PR 1 Architecture, Implementation, and Review Process](code-review/01-senior-review-of-pr-1-architecture-implementation-and-review-process.md)
 - [Investigation Diary](reference/01-investigation-diary.md)
 - [Tasks](tasks.md)
 - [Changelog](changelog.md)
