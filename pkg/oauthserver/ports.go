@@ -8,6 +8,7 @@ import (
 type Clock interface{ Now() time.Time }
 
 type SecretSource interface {
+	NewClientID() (ClientID, error)
 	NewTransactionToken() (TransactionToken, error)
 	NewConsentToken() (ConsentToken, error)
 	NewAuthorizationCode() (AuthorizationCode, error)

@@ -15,7 +15,7 @@ func ValidateLoginCommit[A any](auth AuthorizationTransaction, consent ConsentSe
 	if consent.Client.ID != auth.ClientID || consent.Client.RedirectURI != auth.RedirectURI || consent.State != auth.State || consent.PKCEChallenge != auth.PKCEChallenge || consent.Resource != auth.Resource {
 		return ErrBinding
 	}
-	if consent.Principal.Subject == "" || !consent.AllowedScopes.IsSubsetOf(auth.RequestedScopes) || !consent.ExpiresAt.After(now) {
+	if consent.Principal.Subject == "" || !consent.AllowedScopes.IsSubsetOf(auth.RequestedScopes) || !consent.AuthorizationEnds.After(now) || !consent.ExpiresAt.After(now) {
 		return ErrInvalid
 	}
 	return nil
@@ -38,7 +38,7 @@ func ValidateConsentCommit[A any](consent ConsentSession[A], commit ConsentCommi
 		return ErrInvalid
 	}
 	code := commit.Code
-	if code.Digest == (CredentialDigest{}) || code.ClientID != consent.Client.ID || code.RedirectURI != consent.Client.RedirectURI || code.State != consent.State || code.PKCEChallenge != consent.PKCEChallenge || code.Resource != consent.Resource || !reflect.DeepEqual(code.Principal, consent.Principal) || !code.Scopes.IsSubsetOf(consent.AllowedScopes) || !code.ExpiresAt.After(now) {
+	if code.Digest == (CredentialDigest{}) || code.ClientID != consent.Client.ID || code.RedirectURI != consent.Client.RedirectURI || code.State != consent.State || code.PKCEChallenge != consent.PKCEChallenge || code.Resource != consent.Resource || !reflect.DeepEqual(code.Principal, consent.Principal) || !code.Scopes.IsSubsetOf(consent.AllowedScopes) || !code.AuthorizationEnds.Equal(consent.AuthorizationEnds) || !code.ExpiresAt.After(now) {
 		return ErrBinding
 	}
 	return nil
@@ -55,7 +55,7 @@ func ValidateCodeExchangeCommit[A any](code AuthorizationCodeRecord[A], commit C
 		return ErrInvalid
 	}
 	refresh := commit.Refresh
-	if refresh.Digest == (CredentialDigest{}) || refresh.FamilyID == "" || refresh.Generation != 0 || refresh.ClientID != code.ClientID || !reflect.DeepEqual(refresh.Principal, code.Principal) || refresh.Resource != code.Resource || refresh.Scopes.String() != code.Scopes.String() || !refresh.ExpiresAt.After(now) || !refresh.ConsumedAt.IsZero() || !refresh.RevokedAt.IsZero() {
+	if refresh.Digest == (CredentialDigest{}) || refresh.FamilyID == "" || refresh.Generation != 0 || refresh.ClientID != code.ClientID || !reflect.DeepEqual(refresh.Principal, code.Principal) || refresh.Resource != code.Resource || refresh.Scopes.String() != code.Scopes.String() || !refresh.ExpiresAt.Equal(code.AuthorizationEnds) || !refresh.ExpiresAt.After(now) || !refresh.ConsumedAt.IsZero() || !refresh.RevokedAt.IsZero() {
 		return ErrBinding
 	}
 	return nil

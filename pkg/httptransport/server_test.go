@@ -82,7 +82,7 @@ func TestServerMetadataRegistrationAndBoundaries(t *testing.T) {
 		t.Fatalf("POST metadata: %d %v", badResponse.Code, badResponse.Header())
 	}
 
-	body := strings.NewReader(`{"client_name":"test","redirect_uris":["https://client.example.test/callback"],"scope":"read"}`)
+	body := strings.NewReader(`{"client_name":"test","redirect_uris":["https://client.example.test/callback"],"scope":"read","client_uri":"https://client.example.test","contacts":["ops@example.test"],"software_id":"software-1"}`)
 	register := httptest.NewRequest(http.MethodPost, "https://auth.example.test/oauth/register", body)
 	register.Header.Set("Content-Type", "application/json")
 	registerResponse := httptest.NewRecorder()

@@ -40,7 +40,7 @@ func TestStoreTransitionsAndDigestOnlyState(t *testing.T) {
 	}
 	consentToken, _ := oauthserver.NewConsentToken("consent-000000000000000000000000000000000000")
 	principal := oauthserver.Principal[struct{}]{Subject: "employee-1", DisplayName: "Employee"}
-	consent := oauthserver.ConsentSession[struct{}]{Token: consentToken, Client: oauthserver.ConsentClientSnapshot{ID: client.ID, DisplayName: client.DisplayName, Trust: client.Trust, RedirectURI: client.RedirectURIs[0]}, State: state.State, PKCEChallenge: challenge, Principal: principal, AllowedScopes: scopes, Resource: resource, ExpiresAt: now.Add(10 * time.Minute)}
+	consent := oauthserver.ConsentSession[struct{}]{Token: consentToken, Client: oauthserver.ConsentClientSnapshot{ID: client.ID, DisplayName: client.DisplayName, Trust: client.Trust, RedirectURI: client.RedirectURIs[0]}, State: state.State, PKCEChallenge: challenge, Principal: principal, AllowedScopes: scopes, Resource: resource, AuthorizationEnds: now.Add(24 * time.Hour), ExpiresAt: now.Add(10 * time.Minute)}
 	forgedConsent := consent
 	forgedConsent.Resource = "https://attacker.example.test/api"
 	if err := store.CommitLogin(ctx, oauthserver.LoginCommit[struct{}]{TransactionDigest: oauthserver.DigestCredential(string(txToken)), Consent: forgedConsent}, policy); !errors.Is(err, oauthserver.ErrBinding) {
@@ -61,7 +61,7 @@ func TestStoreTransitionsAndDigestOnlyState(t *testing.T) {
 	assertPayloadOmitsCredential(t, rawDB, "SELECT payload FROM oauth_authorizations LIMIT 1", string(txToken))
 	assertPayloadOmitsCredential(t, rawDB, "SELECT payload FROM oauth_consents LIMIT 1", string(consentToken))
 	codeToken, _ := oauthserver.NewAuthorizationCode("code-000000000000000000000000000000000000")
-	code := oauthserver.AuthorizationCodeRecord[struct{}]{Digest: oauthserver.DigestCredential(string(codeToken)), ClientID: client.ID, RedirectURI: client.RedirectURIs[0], PKCEChallenge: challenge, Principal: principal, Scopes: scopes, Resource: resource, State: state.State, ExpiresAt: now.Add(time.Minute)}
+	code := oauthserver.AuthorizationCodeRecord[struct{}]{Digest: oauthserver.DigestCredential(string(codeToken)), ClientID: client.ID, RedirectURI: client.RedirectURIs[0], PKCEChallenge: challenge, Principal: principal, Scopes: scopes, Resource: resource, State: state.State, AuthorizationEnds: consent.AuthorizationEnds, ExpiresAt: now.Add(time.Minute)}
 	badCode := code
 	badCode.State = "attacker-state"
 	if _, err := store.CommitConsent(ctx, oauthserver.ConsentCommit[struct{}]{ConsentDigest: oauthserver.DigestCredential(string(consentToken)), Code: badCode, Decision: oauthserver.ConsentDecisionApprove}, policy); !errors.Is(err, oauthserver.ErrBinding) {

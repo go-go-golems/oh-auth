@@ -67,28 +67,30 @@ type AuthorizationTransaction struct {
 }
 
 type ConsentSession[A any] struct {
-	Token         ConsentToken `json:"-"`
-	Client        ConsentClientSnapshot
-	State         string
-	PKCEChallenge PKCEChallenge
-	Principal     Principal[A] `json:"-"`
-	AllowedScopes ScopeSet
-	Resource      ResourceID
-	ExpiresAt     time.Time
-	ConsumedAt    time.Time
+	Token             ConsentToken `json:"-"`
+	Client            ConsentClientSnapshot
+	State             string
+	PKCEChallenge     PKCEChallenge
+	Principal         Principal[A] `json:"-"`
+	AllowedScopes     ScopeSet
+	Resource          ResourceID
+	AuthorizationEnds time.Time
+	ExpiresAt         time.Time
+	ConsumedAt        time.Time
 }
 
 type AuthorizationCodeRecord[A any] struct {
-	Digest        CredentialDigest
-	ClientID      ClientID
-	RedirectURI   RedirectURI
-	PKCEChallenge PKCEChallenge
-	Principal     Principal[A] `json:"-"`
-	Scopes        ScopeSet
-	Resource      ResourceID
-	State         string
-	ExpiresAt     time.Time
-	ConsumedAt    time.Time
+	Digest            CredentialDigest
+	ClientID          ClientID
+	RedirectURI       RedirectURI
+	PKCEChallenge     PKCEChallenge
+	Principal         Principal[A] `json:"-"`
+	Scopes            ScopeSet
+	Resource          ResourceID
+	State             string
+	AuthorizationEnds time.Time
+	ExpiresAt         time.Time
+	ConsumedAt        time.Time
 }
 
 type RefreshGrant[A any] struct {

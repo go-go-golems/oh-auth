@@ -107,7 +107,7 @@ func (s *Server[A]) register(w http.ResponseWriter, r *http.Request) {
 		GrantTypes              []string `json:"grant_types"`
 		ResponseTypes           []string `json:"response_types"`
 	}
-	if err := s.decodeJSON(w, r, &request); err != nil {
+	if err := s.decodeRegistrationJSON(w, r, &request); err != nil {
 		s.writeOAuthError(w, invalid(oauthserver.ErrorInvalidClientMetadata, "client metadata is invalid", err))
 		return
 	}
@@ -362,14 +362,13 @@ func validMetadataList(values []string, maxLength int, allowed ...string) bool {
 
 func hasKey(values map[string]struct{}, key string) bool { _, ok := values[key]; return ok }
 
-func (s *Server[A]) decodeJSON(w http.ResponseWriter, r *http.Request, destination any) error {
+func (s *Server[A]) decodeRegistrationJSON(w http.ResponseWriter, r *http.Request, destination any) error {
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
 		return errors.New("content type must be application/json")
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, s.policy.MaxBodyBytes)
 	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(destination); err != nil {
 		return err
 	}

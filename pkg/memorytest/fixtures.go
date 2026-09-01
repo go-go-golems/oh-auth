@@ -33,6 +33,9 @@ func (s *Secrets) value(prefix string) string {
 	s.next++
 	return fmt.Sprintf("%s-%040d", prefix, s.next)
 }
+func (s *Secrets) NewClientID() (oauthserver.ClientID, error) {
+	return oauthserver.NewClientID(s.value("client"))
+}
 func (s *Secrets) NewTransactionToken() (oauthserver.TransactionToken, error) {
 	return oauthserver.NewTransactionToken(s.value("tx"))
 }

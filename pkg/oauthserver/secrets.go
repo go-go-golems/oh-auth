@@ -33,6 +33,10 @@ func (s CryptoSecrets) opaque(makeValue func(string) error) (string, error) {
 	return value, nil
 }
 
+func (s CryptoSecrets) NewClientID() (ClientID, error) {
+	value, err := s.opaque(func(value string) error { _, err := NewClientID(value); return err })
+	return ClientID(value), err
+}
 func (s CryptoSecrets) NewTransactionToken() (TransactionToken, error) {
 	value, err := s.opaque(func(value string) error { _, err := NewTransactionToken(value); return err })
 	return TransactionToken(value), err

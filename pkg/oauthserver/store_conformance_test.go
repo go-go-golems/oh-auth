@@ -95,7 +95,7 @@ func runBindingRetryConformance(t *testing.T, store oauthserver.Store[struct{}],
 		t.Fatal(err)
 	}
 	consentToken, _ := oauthserver.NewConsentToken("consent-binding-000000000000000000000000000")
-	consent := oauthserver.ConsentSession[struct{}]{Token: consentToken, Client: oauthserver.ConsentClientSnapshot{ID: auth.ClientID, RedirectURI: auth.RedirectURI}, State: auth.State, PKCEChallenge: auth.PKCEChallenge, Principal: oauthserver.Principal[struct{}]{Subject: "subject-1"}, AllowedScopes: auth.RequestedScopes, Resource: auth.Resource, ExpiresAt: clock.Now().Add(time.Minute)}
+	consent := oauthserver.ConsentSession[struct{}]{Token: consentToken, Client: oauthserver.ConsentClientSnapshot{ID: auth.ClientID, RedirectURI: auth.RedirectURI}, State: auth.State, PKCEChallenge: auth.PKCEChallenge, Principal: oauthserver.Principal[struct{}]{Subject: "subject-1"}, AllowedScopes: auth.RequestedScopes, Resource: auth.Resource, AuthorizationEnds: clock.Now().Add(time.Hour), ExpiresAt: clock.Now().Add(time.Minute)}
 	forged := consent
 	forged.Resource = "https://attacker.example.test/api"
 	digest := oauthserver.DigestCredential(string(auth.Token))

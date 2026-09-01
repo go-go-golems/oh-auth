@@ -34,7 +34,7 @@ func TestPrincipalCodecMayReturnNonJSONBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	consentToken, _ := oauthserver.NewConsentToken("consent-opaque-000000000000000000000")
-	if err := store.CommitLogin(ctx, oauthserver.LoginCommit[struct{}]{TransactionDigest: oauthserver.DigestCredential(string(txToken)), Consent: oauthserver.ConsentSession[struct{}]{Token: consentToken, Client: oauthserver.ConsentClientSnapshot{ID: "client-1", RedirectURI: "https://client.example.test/callback"}, State: "state", PKCEChallenge: challenge, Principal: oauthserver.Principal[struct{}]{Subject: "original"}, Resource: resource, ExpiresAt: time.Now().UTC().Add(time.Minute)}}, policy); err != nil {
+	if err := store.CommitLogin(ctx, oauthserver.LoginCommit[struct{}]{TransactionDigest: oauthserver.DigestCredential(string(txToken)), Consent: oauthserver.ConsentSession[struct{}]{Token: consentToken, Client: oauthserver.ConsentClientSnapshot{ID: "client-1", RedirectURI: "https://client.example.test/callback"}, State: "state", PKCEChallenge: challenge, Principal: oauthserver.Principal[struct{}]{Subject: "original"}, Resource: resource, AuthorizationEnds: time.Now().UTC().Add(time.Hour), ExpiresAt: time.Now().UTC().Add(time.Minute)}}, policy); err != nil {
 		t.Fatal(err)
 	}
 	consent, err := store.GetConsent(ctx, oauthserver.DigestCredential(string(consentToken)))

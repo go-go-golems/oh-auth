@@ -72,11 +72,7 @@ func (e *Engine[A]) RegisterClient(ctx context.Context, in RegisterClientInput) 
 	if err != nil || len(scopes.Values()) > e.config.StatePolicy.Registration.MaxScopeCount || !scopes.IsSubsetOf(e.config.SupportedScopes) {
 		return RegisterClientResult{}, oauthError(ErrorInvalidScope, "requested scopes are invalid", 400, err)
 	}
-	id, err := e.deps.Secrets.NewTransactionToken()
-	if err != nil {
-		return RegisterClientResult{}, oauthError(ErrorTemporary, "could not create client", 503, err)
-	}
-	clientID, err := NewClientID(string(id))
+	clientID, err := e.deps.Secrets.NewClientID()
 	if err != nil {
 		return RegisterClientResult{}, oauthError(ErrorTemporary, "could not create client", 503, err)
 	}
@@ -220,7 +216,8 @@ func (e *Engine[A]) CompleteLogin(ctx context.Context, in CompleteLoginInput[A])
 	if err != nil {
 		return CompleteLoginResult{}, oauthError(ErrorTemporary, "could not create consent", 503, err)
 	}
-	consent := ConsentSession[A]{Token: consentToken, Client: snapshotClient(client, auth.RedirectURI), State: auth.State, PKCEChallenge: auth.PKCEChallenge, Principal: in.Principal, AllowedScopes: allowed, Resource: auth.Resource, ExpiresAt: e.now().Add(e.config.ConsentTTL)}
+	now := e.now()
+	consent := ConsentSession[A]{Token: consentToken, Client: snapshotClient(client, auth.RedirectURI), State: auth.State, PKCEChallenge: auth.PKCEChallenge, Principal: in.Principal, AllowedScopes: allowed, Resource: auth.Resource, AuthorizationEnds: now.Add(e.config.RefreshTTL), ExpiresAt: now.Add(e.config.ConsentTTL)}
 	if err := e.deps.Store.CommitLogin(ctx, LoginCommit[A]{TransactionDigest: DigestCredential(string(in.Transaction)), Consent: consent}, e.config.StatePolicy); err != nil {
 		return CompleteLoginResult{}, mapStoreError(err, ErrorInvalidGrant)
 	}
@@ -244,7 +241,7 @@ func (e *Engine[A]) ConsentView(ctx context.Context, token ConsentToken) (Consen
 	for _, scope := range consent.AllowedScopes.Values() {
 		scopes = append(scopes, ConsentScope{Scope: scope})
 	}
-	return ConsentView{Token: token, ResourceName: resource.DisplayName, PrincipalName: consent.Principal.DisplayName, PrincipalEmail: consent.Principal.Email, ClientName: consent.Client.DisplayName, ClientTrust: consent.Client.Trust, RedirectOrigin: consent.Client.RedirectOrigin, RedirectURI: string(consent.Client.RedirectURI), AccessTokenTTL: e.config.AccessTTL, AuthorizationEnds: consent.ExpiresAt.Add(e.config.RefreshTTL), Scopes: scopes}, nil
+	return ConsentView{Token: token, ResourceName: resource.DisplayName, PrincipalName: consent.Principal.DisplayName, PrincipalEmail: consent.Principal.Email, ClientName: consent.Client.DisplayName, ClientTrust: consent.Client.Trust, RedirectOrigin: consent.Client.RedirectOrigin, RedirectURI: string(consent.Client.RedirectURI), AccessTokenTTL: e.config.AccessTTL, AuthorizationEnds: consent.AuthorizationEnds, Scopes: scopes}, nil
 }
 
 type ConsentDecision uint8
@@ -287,7 +284,7 @@ func (e *Engine[A]) DecideConsent(ctx context.Context, in DecideConsentInput) (D
 		if err != nil {
 			return DecideConsentResult{}, oauthError(ErrorTemporary, "could not create authorization code", 503, err)
 		}
-		code = &AuthorizationCodeRecord[A]{Digest: DigestCredential(string(rawCode)), ClientID: consent.Client.ID, RedirectURI: consent.Client.RedirectURI, PKCEChallenge: consent.PKCEChallenge, Principal: consent.Principal, Scopes: selected, Resource: consent.Resource, State: consent.State, ExpiresAt: e.now().Add(e.config.CodeTTL)}
+		code = &AuthorizationCodeRecord[A]{Digest: DigestCredential(string(rawCode)), ClientID: consent.Client.ID, RedirectURI: consent.Client.RedirectURI, PKCEChallenge: consent.PKCEChallenge, Principal: consent.Principal, Scopes: selected, Resource: consent.Resource, State: consent.State, AuthorizationEnds: consent.AuthorizationEnds, ExpiresAt: e.now().Add(e.config.CodeTTL)}
 	}
 	result, err := e.deps.Store.CommitConsent(ctx, ConsentCommit[A]{ConsentDigest: DigestCredential(string(in.Token)), Code: valueOrEmpty(code), Decision: in.Decision}, e.config.StatePolicy)
 	if err != nil {
@@ -338,7 +335,7 @@ func (e *Engine[A]) ExchangeCode(ctx context.Context, in ExchangeCodeInput) (Tok
 	if err != nil {
 		return TokenResponse{}, oauthError(ErrorTemporary, "could not issue refresh grant", 503, err)
 	}
-	grant := &RefreshGrant[A]{Digest: DigestCredential(string(refresh)), FamilyID: family, Generation: 0, ClientID: code.ClientID, Principal: code.Principal, Scopes: code.Scopes, Resource: code.Resource, ExpiresAt: now.Add(e.config.RefreshTTL)}
+	grant := &RefreshGrant[A]{Digest: DigestCredential(string(refresh)), FamilyID: family, Generation: 0, ClientID: code.ClientID, Principal: code.Principal, Scopes: code.Scopes, Resource: code.Resource, ExpiresAt: code.AuthorizationEnds}
 	if err := e.deps.Store.CommitCodeExchange(ctx, CodeExchangeCommit[A]{CodeDigest: code.Digest, Refresh: grant}, e.config.StatePolicy); err != nil {
 		return TokenResponse{}, mapStoreError(err, ErrorInvalidGrant)
 	}

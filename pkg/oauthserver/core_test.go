@@ -124,6 +124,13 @@ func TestEngineOAuthLifecycle(t *testing.T) {
 	if tokens.AccessToken == "" || tokens.RefreshToken == "" || tokens.Scopes.String() != "documents:read" {
 		t.Fatalf("unexpected token response: %+v", tokens)
 	}
+	grant, err := store.GetRefreshGrant(ctx, oauthserver.DigestCredential(tokens.RefreshToken))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !grant.ExpiresAt.Equal(view.AuthorizationEnds) {
+		t.Fatalf("refresh expiry %s differs from disclosed authorization end %s", grant.ExpiresAt, view.AuthorizationEnds)
+	}
 	revalidator.Result = oauthserver.Revalidation[struct{}]{Status: oauthserver.RevalidationEligible, Principal: oauthserver.Principal[struct{}]{Subject: "other-employee"}}
 	if _, err := engine.Refresh(ctx, oauthserver.RefreshInput{RefreshToken: tokens.RefreshToken, ClientID: string(registered.Client.ID)}); err == nil {
 		t.Fatal("refresh accepted revalidation for another subject")

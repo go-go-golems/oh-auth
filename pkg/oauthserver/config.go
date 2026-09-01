@@ -75,7 +75,7 @@ func (c Config) Validate() error {
 	if !validIssuer(c.Issuer) {
 		return invalidValue("issuer")
 	}
-	if len(c.Resources) == 0 || c.AccessTTL <= 0 || c.RefreshTTL <= 0 || c.TransactionTTL <= 0 || c.ConsentTTL <= 0 || c.CodeTTL <= 0 {
+	if len(c.Resources) == 0 || c.AccessTTL <= 0 || c.RefreshTTL <= c.ConsentTTL+c.CodeTTL || c.TransactionTTL <= 0 || c.ConsentTTL <= 0 || c.CodeTTL <= 0 {
 		return invalidValue("configuration")
 	}
 	seen := make(map[ResourceID]struct{}, len(c.Resources))
