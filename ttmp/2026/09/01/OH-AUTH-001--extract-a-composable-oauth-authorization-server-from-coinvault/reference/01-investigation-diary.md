@@ -1153,3 +1153,82 @@ commit at appropriate intervals and keep a detailed diary as you work (using the
 
 - Final-review findings addressed: `3907604521`, `3907604555`, `3907604565`, and `3907604576`.
 - New fault tests use a store decorator that overrides only refresh lookup/revocation while embedding the full port.
+
+## Step 15: Make durable state truthful and transition commits authoritative
+
+This phase removed the gap between the digest-only storage promise and actual SQLite payloads. Transaction and consent handles are no longer serialized, the engine derives digests from presented credentials rather than store-returned plaintext, and a reproducible database-byte assertion locks the boundary down.
+
+The same phase made time and atomicity coherent. Memory and SQLite stores now use injected clocks, obsolete post-expiry retention knobs are gone, both stores prune by protocol/family expiry, and pure transition validators prevent caller-built successor records from changing client, redirect, state, PKCE, principal, resource, scope, family, generation, or expiry invariants.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 14)
+
+**Assistant interpretation:** Continue the shipping remediation with minimal state representations, one clock, and atomic invariant checks rather than adding a new persistence architecture.
+
+**Inferred user intent:** Ensure database compromise does not reveal live handles and future adapter/refactor mistakes cannot expand authority through store commits.
+
+**Commits (code):** `258b629c118e68bfef1af4fbbe520359ddb6e43b` — "fix: enforce digest-only state and one clock"; `bf6083b3e0d7c296221df6cd15e782f8a16cb58c` — "fix: make OAuth store transitions authoritative"
+
+### What I did
+
+- Marked transaction and consent raw token fields non-serializable and removed engine dependence on store-returned raw handles.
+- Added database-byte assertions for known transaction and consent credentials.
+- Added clock injection to SQLite and memory stores and used it for every transition/prune timestamp.
+- Made SQLite `Open` remain source-compatible through an optional clock argument.
+- Removed unused `ConsumedState` and `RevokedState` configuration rather than pretending SQLite honored it.
+- Aligned memory pruning with SQLite: one-time state prunes at protocol expiry and refresh generations prune only when the family expires.
+- Added pure validators for login, consent, code exchange, and refresh rotation successor derivation.
+- Applied those validators in both memory and SQLite atomic commit paths.
+- Added forged successor tests that prove invalid commits do not consume the predecessor and a correct retry still succeeds.
+
+### Why
+
+- Digest primary keys do not provide digest-only storage when raw handles remain in JSON payloads.
+- A SQL transaction provides atomic writes but does not prove that successor authority was derived from predecessor authority.
+- Configuration fields that do nothing are more dangerous than a smaller explicit lifecycle contract.
+
+### What worked
+
+- The boundary probe changed from raw credentials present/stale activity to `False`, `False`, and `true` respectively.
+- `GOWORK=off go test ./... -count=1` passed after each checkpoint.
+- `GOWORK=off go test -race ./... -count=1` passed after transition validation.
+- Both pre-commit test/lint hooks passed with zero issues.
+- Forged consent, code-to-refresh, and refresh-rotation resource bindings are rejected before predecessor consumption.
+
+### What didn't work
+
+- The first transition build failed because a decoded `Principal[A]` variable was reused for encoded `[]byte`: `cannot use encodePrincipal(...) (value of type []byte) as oauthserver.Principal[A] value in assignment`. Renaming the encoded value fixed the type collision.
+- Initial authoritative checks exposed incomplete older fixtures: codec consent omitted state/PKCE and the SQLite code fixture omitted state, producing `oauth credential binding mismatch`. The fixtures were corrected to represent valid transitions.
+
+### What I learned
+
+- JSON `json:"-"` fields plus engine digest derivation provide the desired durable boundary without introducing parallel public record hierarchies during stabilization.
+- Comparing codec bytes would incorrectly reject randomized encryption codecs. Full principal equality belongs in the generic domain validator (`reflect.DeepEqual`) before encoding.
+
+### What was tricky to build
+
+- Refresh revalidation may legitimately update principal attributes while preserving subject identity, so rotation validates stable subject/resource/client/family and monotonic scopes rather than requiring byte-identical principals.
+- Replay handling must revoke and commit a consumed family before returning `ErrRevoked`; normal successor validation must not intercept that security side effect.
+
+### What warrants a second pair of eyes
+
+- Review `transitions.go` field-by-field against each engine successor construction.
+- Confirm protocol-expiry pruning supplies enough operational history; redacted audit events remain the intended forensic channel.
+- Review use of `reflect.DeepEqual` for application principal attributes with maps/slices.
+
+### What should be done in the future
+
+- If post-expiry forensic retention becomes a named requirement, implement it consistently as archival/audit policy rather than reintroducing partially honored live-state knobs.
+- Keep persistence-byte checks in every future durable store conformance suite.
+
+### Code review instructions
+
+- Start with `model.go` raw token JSON tags and the three digest substitutions in `engine.go`.
+- Review `transitions.go`, then each corresponding commit method in memory and SQLite.
+- Run `scripts/03-probe-sqlite-boundaries.sh`, normal tests, and race tests.
+
+### Technical details
+
+- One-time records remain available until their own expiry; consumed refresh generations remain available until family expiry for replay detection.
+- The optional fourth `sqlitestore.Open` argument injects a clock while preserving existing three-argument consumers.

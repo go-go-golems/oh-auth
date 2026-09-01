@@ -138,3 +138,13 @@ Step 14: Closed final PR protocol blockers with recoverable unverified-client ca
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/httptransport/server.go — Registration response no longer advertises missing management
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/oauthserver/engine.go — Exhaustive revalidation and correct revocation errors
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/sqlitestore/store.go — Recoverable client lifecycle and authoritative activity reads
+
+## 2026-09-01
+
+Step 15: Enforced digest-only transaction/consent persistence, one injected clock, expiry-based lifecycle, and authoritative predecessor/successor transition validation (commits 258b629, bf6083b).
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/memorytest/store.go — Clocked store aligned to durable semantics
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/oauthserver/transitions.go — Pure atomic transition invariant validators
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/sqlitestore/store.go — Digest-only clocked authoritative durable commits
