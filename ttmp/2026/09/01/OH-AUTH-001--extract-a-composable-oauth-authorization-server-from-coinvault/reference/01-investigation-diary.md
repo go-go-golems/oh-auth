@@ -338,3 +338,132 @@ A dry run confirmed all three inputs before replacing the prior ticket PDF.
 
 - Remote path: `/ai/2026/09/01/OH-AUTH-001`.
 - Bundle contents: design, diary, and OWASP source manifest.
+
+## Step 5: Restore a minimal shipping design and isolate deferred hardening
+
+This step reversed the accidental expansion of the main design into a grant-management/compliance platform. The original extraction design was restored as the baseline, the small OWASP shipping delta was added directly, and all expensive controls were moved into a separate roadmap.
+
+The result keeps source evidence and future ideas without making them prerequisites for v0.1.
+
+### Prompt Context
+
+**User prompt (verbatim):** "ok, then move all the unnecessary additions  to a separate document, and just add the new stuff."
+
+**Assistant interpretation:** Remove nonessential OWASP-driven architecture from the shipping design, preserve it in a dedicated document, and retain only the small additions judged necessary.
+
+**Inferred user intent:** Prevent security research from delaying a focused, reusable first release.
+
+### What I did
+
+- Restored the main design from the pre-OWASP-expansion commit as the baseline.
+- Added only consent headers/form-token semantics/lifetime, JWT trust constraints, strict HTTP boundaries, deny-by-default consumer enforcement, and focused WSTG tests.
+- Created `design-doc/02-deferred-owasp-hardening-and-higher-assurance-roadmap.md`.
+- Moved durable grants/status, user grant management, immediate JWT revocation, browser cookie binding, authentication context, formal ASVS profiles, DPoP/mTLS, PAR/JAR/RAR, confidential clients, and exhaustive governance into the roadmap.
+- Kept the downloaded OWASP corpus and crosslinks as reference evidence.
+
+### Why
+
+- The expanded design added substantial persistence, API, UI, and runtime coupling without a current product requirement.
+- v0.1 can be secure and shippable without claiming ASVS certification.
+
+### What worked
+
+- The main design returned close to its original size and API shape.
+- The roadmap retains adoption triggers and detailed sketches without entering the critical path.
+
+### What didn't work
+
+- The first large exact-text edit failed with `Could not find edits[16] ... The oldText must match exactly including all whitespace and newlines.`
+- The final definition-of-done line differed from the expected text. I split the change into smaller exact edits and applied the final section separately.
+
+### What I learned
+
+- OWASP references are most useful here as targeted controls and future crosslinks, not as an automatic implementation backlog.
+
+### What was tricky to build
+
+- Necessary and optional controls were interleaved across the expanded type, store, HTTP, JWT, testing, and definition-of-done sections. Restoring the original baseline first was safer than trying to subtract each addition independently.
+
+### What warrants a second pair of eyes
+
+- Confirm the main design has no accidental references to grant status, user grant UI, authentication context, or ASVS compliance profiles.
+- Confirm the roadmap is clearly non-blocking.
+
+### What should be done in the future
+
+- Promote a deferred feature only through a focused ticket with a named requirement and accepted operational cost.
+
+### Code review instructions
+
+- Review main design Section 27 for the complete v0.1 delta.
+- Review the roadmap only for future scope and adoption triggers.
+
+### Technical details
+
+- Main design: shipping source of truth.
+- Deferred roadmap: non-v0.1 security/compliance ideas.
+
+## Step 6: Consolidate deployed smoke into one final run
+
+This step removed repeated deployed smoke expectations from the implementation phases and replaced them with one final, non-destructive acceptance target after release-candidate deployment. Development continues to use fast local unit, conformance, and integration tests.
+
+The final smoke is an orchestrated happy path across authorization, MCP, and RAG, with one cross-audience rejection. Destructive and exhaustive cases stay out of smoke.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Ok, let's update the plan to streamline and consolidate the smoke tests. Ideally we would have a single smoke test at the end, so as not to slow us down too much during development running smoke tests at every turn."
+
+**Assistant interpretation:** Make deployed smoke a single end-of-project gate and keep development validation local and deterministic.
+
+**Inferred user intent:** Preserve confidence without repeatedly paying deployment, browser-login, relinking, and host-interaction costs.
+
+### What I did
+
+- Added Phase 12 for one `make smoke-final` run.
+- Clarified that Phases 0–11 use no deployed smoke tests.
+- Defined one compact orchestrator covering discovery, 401, DCR, MCP PKCE/call/refresh, RAG PKCE/call, and cross-audience rejection.
+- Explicitly excluded replay, revocation, capability mutation, expiry waiting, key rotation, rate/capacity exhaustion, concurrency, outage injection, and exhaustive OWASP tests.
+- Reclassified both-host checks and operational/security exercises as release/manual activities only when relevant.
+- Updated the task wording and deferred roadmap accordingly.
+
+### Why
+
+- Smoke tests should prove deployed composition, not duplicate deterministic protocol/security suites.
+- Destructive smoke steps create relinking work and can affect shared state.
+
+### What worked
+
+- The plan now has one clear smoke command and one final execution point.
+- Every broad negative case still has an explicit local or operational test tier.
+
+### What didn't work
+
+- `git diff --check` reported `changelog.md:61: new blank line at EOF.` after the two docmgr changelog updates. I removed the generated terminal blank line before staging.
+
+### What I learned
+
+- A single orchestrator can cover both separate resources without turning every implementation phase into a deployment exercise.
+
+### What was tricky to build
+
+- Cross-resource isolation requires two grants, but it can still be one smoke invocation and one report. The smoke remains compact by using one read-only operation per resource and one refresh total.
+
+### What warrants a second pair of eyes
+
+- Confirm the final smoke can obtain browser consent with minimal human interaction and never writes credentials to artifacts.
+- Confirm one representative MCP host is sufficient for routine final smoke while both real hosts remain conditional release checks.
+
+### What should be done in the future
+
+- Keep new negative/security cases in deterministic suites unless a specific deployed wiring risk proves they belong in the final smoke.
+
+### Code review instructions
+
+- Review Phase 12 and Testing Strategy 19.7 together.
+- Verify no earlier phase mentions a deployed smoke requirement.
+
+### Technical details
+
+- Final command contract: `make smoke-final SMOKE_CONFIG=/secure/path/smoke.yaml`.
+- Target duration: minutes, excluding unavoidable human login/consent.
+- Smoke credentials are disposable and never logged or persisted as artifacts.

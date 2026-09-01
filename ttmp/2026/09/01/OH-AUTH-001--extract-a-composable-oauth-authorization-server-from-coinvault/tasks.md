@@ -9,6 +9,7 @@
 - [ ] Implement SQLite, JWT, HTTP, consent, and resource adapters <!-- t:2i9p -->
 - [ ] Cut CoinVault over and remove duplicate OAuth mechanics <!-- t:4gtn -->
 - [ ] Integrate an independent RAG resource server and test audience isolation <!-- t:wfnu -->
-- [ ] Run full security, race, fuzz, GOWORK-off, and host acceptance gates <!-- t:f8yy -->
+- [ ] Run local security/race/fuzz/GOWORK-off gates, then one consolidated final deployed smoke <!-- t:f8yy -->
 - [x] Validate and upload the ticket bundle to reMarkable <!-- t:9dqj -->
 - [x] Review design against OWASP ASVS, cheat sheets, API Security, and WSTG guidance <!-- t:z926 -->
+- [x] Separate deferred OWASP controls and consolidate smoke into one final acceptance run <!-- t:6yow -->

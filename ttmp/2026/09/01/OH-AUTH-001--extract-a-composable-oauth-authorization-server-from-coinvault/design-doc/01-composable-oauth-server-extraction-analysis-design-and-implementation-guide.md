@@ -15,7 +15,7 @@ RelatedFiles:
     - Path: repo://go.mod
       Note: Shows the new repository's current template module and toolchain baseline
     - Path: repo://ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/sources/owasp/README.md
-      Note: Manifest for the downloaded OWASP corpus and relevant sections
+      Note: Crosslinked OWASP evidence for the minimal shipping delta
     - Path: ws://coinvault/internal/mcpauthz/capabilities.go
       Note: Defines application-owned capability-to-scope policy
     - Path: ws://coinvault/internal/mcpauthz/gec_client.go
@@ -37,15 +37,11 @@ ExternalSources:
     - https://www.rfc-editor.org/rfc/rfc8414
     - https://www.rfc-editor.org/rfc/rfc8707
     - https://www.rfc-editor.org/rfc/rfc9728
-    - https://github.com/OWASP/ASVS/blob/master/5.0/en/0x19-V10-OAuth-and-OIDC.md
     - https://cheatsheetseries.owasp.org/cheatsheets/OAuth2_Cheat_Sheet.html
-    - https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html
     - https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html
-    - https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html
-    - https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/
     - https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/05-Authorization_Testing/05.1-Testing_for_OAuth_Authorization_Server_Weaknesses
 Summary: Extract CoinVault's OAuth authorization server into a reusable, typed, transition-oriented Go library for independent MCP and RAG resource servers.
-LastUpdated: 2026-09-01T20:30:00-04:00
+LastUpdated: 2026-09-02T00:50:00-04:00
 WhatFor: Give a new engineer the architecture, APIs, invariants, package map, extraction sequence, and validation plan for the oh-auth library.
 WhenToUse: Read before implementing oh-auth, moving CoinVault OAuth code, or integrating authorization into an MCP or RAG server.
 ---
@@ -81,7 +77,7 @@ The core consistency rules are simple to state:
 
 These rules have a clean formal interpretation as deterministic state transitions and monotonic authority reduction, but the public API uses ordinary names such as `BeginAuthorization`, `CompleteLogin`, `ApproveConsent`, `ExchangeCode`, and `Refresh`. Consumers should not need mathematics terminology to use the package correctly.
 
-An OWASP review performed on 2026-09-01 sharpened the design. The first release now targets the OWASP ASVS 5.0 Level 2 requirements applicable to a public-client OAuth authorization server and resource server. In particular, it adds authorization-grant status, revocation after a correctly bound authorization-code replay, user review/reduction/revocation of grants, explicit consent lifetime, browser-flow CSRF binding, deny-by-default resource policies, fixed JWT trust configuration, security headers, and stronger resource budgets. Level 3 controls—DPoP or mTLS sender-constrained tokens, PAR/JAR, and strong confidential-client authentication—remain a declared high-assurance profile rather than being silently claimed. See Section 27 for the requirement crosswalk and source links.
+The v0.1 design is OWASP-informed rather than an ASVS compliance claim. The shipping delta is intentionally small: explicit consent anti-framing/no-referrer headers, use of the existing unguessable one-time consent token as the form CSRF token, authorization-lifetime disclosure, fixed JWT algorithm/type/key trust, strict HTTP method/content/size/timeout handling, deny-by-default consumer enforcement, and a focused WSTG-derived negative test set. More expensive grant-status, user-management, DPoP/mTLS, PAR/JAR, and higher-assurance work is isolated in [Deferred OWASP Hardening and Higher Assurance Roadmap](02-deferred-owasp-hardening-and-higher-assurance-roadmap.md).
 
 ## 2. Audience and reading order
 
@@ -243,16 +239,12 @@ The extraction must answer four questions cleanly:
 - JWT access tokens;
 - opaque rotating refresh tokens;
 - refresh revalidation and authoritative denial;
-- token and authorization-grant revocation;
-- user review, narrowing, and revocation of active grants/consents;
-- authorization-code replay revocation through a stable grant identifier;
-- browser-flow and consent CSRF binding;
+- token revocation;
 - SQLite implementation and storage lifecycle;
 - multiple exact resource URLs under one issuer;
-- typed application principal attributes and authentication context;
-- adapters for browser identity, scope policy, claims, grant status, and audit;
-- a neutral verified-token result for MCP and RAG adapters;
-- an OWASP ASVS 5.0 Level 2 implementation profile and test matrix.
+- typed application principal attributes;
+- adapters for browser identity, scope policy, claims, and audit;
+- a neutral verified-token result for MCP and RAG adapters.
 
 ### 5.3 Out of scope for the first release
 
@@ -261,7 +253,7 @@ The extraction must answer four questions cleanly:
 - device authorization grant;
 - token exchange;
 - social identity-provider implementation;
-- general user/account administration beyond OAuth grant review, narrowing, and revocation;
+- user/account administration;
 - hosted UI customization framework;
 - distributed SQL or Redis stores;
 - multi-tenant issuer routing;
@@ -527,18 +519,11 @@ Construction trims, validates, deduplicates, and sorts. `Values` returns a copy.
 Use one generic parameter for application-specific principal attributes:
 
 ```go
-type AuthenticationContext struct {
-    AuthenticatedAt time.Time
-    Methods         []string
-    Assurance       string
-}
-
 type Principal[A any] struct {
     Subject              Subject
     DisplayName          string
     Email                string
     AuthorizationVersion int64
-    Authentication       AuthenticationContext
     Attributes           A
 }
 ```
@@ -597,41 +582,25 @@ Public DCR can create only unverified clients. Configured trust requires an appl
 
 ```go
 type AuthorizationTransaction struct {
-    Token             TransactionToken
-    BrowserBinding  CredentialDigest
+    Token           TransactionToken
     ClientID        ClientID
-    RedirectURI       RedirectURI
-    State             string
-    PKCEChallenge     PKCEChallenge
-    RequestedScopes   ScopeSet
-    Resource          ResourceID
-    ExpiresAt         time.Time
+    RedirectURI     RedirectURI
+    State           string
+    PKCEChallenge   PKCEChallenge
+    RequestedScopes ScopeSet
+    Resource        ResourceID
+    ExpiresAt       time.Time
 }
 
 type ConsentSession[A any] struct {
-    Token             ConsentToken
-    BrowserBinding CredentialDigest
-    Client         ConsentClientSnapshot
-    State             string
-    PKCEChallenge     PKCEChallenge
-    Principal         Principal[A]
-    AllowedScopes     ScopeSet
-    Resource          ResourceID
-    GrantExpiresAt    time.Time
-    ExpiresAt         time.Time
-}
-
-type AuthorizationGrant[A any] struct {
-    ID          GrantID
-    Version     uint64
-    Status      GrantStatus
-    ClientID    ClientID
-    Principal   Principal[A]
-    Scopes      ScopeSet
-    Resource    ResourceID
-    CreatedAt   time.Time
-    ExpiresAt   time.Time
-    RevokedAt   time.Time
+    Token         ConsentToken
+    Client        ConsentClientSnapshot
+    State         string
+    PKCEChallenge PKCEChallenge
+    Principal     Principal[A]
+    AllowedScopes ScopeSet
+    Resource      ResourceID
+    ExpiresAt     time.Time
 }
 
 type AuthorizationCodeRecord[A any] struct {
@@ -643,25 +612,21 @@ type AuthorizationCodeRecord[A any] struct {
     Scopes        ScopeSet
     Resource      ResourceID
     ExpiresAt     time.Time
-    Status        AuthorizationCodeStatus
-    IssuedGrantID GrantID
 }
 
 type RefreshGrant[A any] struct {
-    Digest       CredentialDigest
-    FamilyID     RefreshFamilyID
-    Generation   uint64
-    GrantID      GrantID
-    GrantVersion uint64
-    ClientID     ClientID
-    Principal    Principal[A]
-    Scopes       ScopeSet
-    Resource     ResourceID
-    ExpiresAt    time.Time
+    Digest     CredentialDigest
+    FamilyID   RefreshFamilyID
+    Generation uint64
+    ClientID   ClientID
+    Principal  Principal[A]
+    Scopes     ScopeSet
+    Resource   ResourceID
+    ExpiresAt  time.Time
 }
 ```
 
-Raw authorization, browser-flow, CSRF, code, and refresh credentials exist only in engine result values, secure cookies/forms, and protocol responses. Stores receive digests. A successfully exchanged code records its `IssuedGrantID`; a second correctly bound exchange revokes that grant, which invalidates its refresh family and causes resource servers to reject access tokens carrying the revoked `grant_id`. Wrong client, redirect, or PKCE bindings still return a generic invalid grant without revoking the legitimate grant.
+Raw authorization codes and refresh tokens exist only in engine result values and HTTP responses. Stores receive digests.
 
 ## 9. Engine dependencies and construction
 
@@ -704,11 +669,9 @@ type Clock interface {
 }
 
 type SecretSource interface {
-    NewBrowserBinding() (string, error)
     NewTransactionToken() (TransactionToken, error)
     NewConsentToken() (ConsentToken, error)
     NewAuthorizationCode() (AuthorizationCode, error)
-    NewGrantID() (GrantID, error)
     NewRefreshToken() (RefreshToken, error)
     NewRefreshFamilyID() (RefreshFamilyID, error)
     NewTokenID() (string, error)
@@ -753,17 +716,14 @@ Semantics:
 
 ```go
 type AuditEvent struct {
-    Time          time.Time
-    InteractionID string
-    Operation     string
-    Outcome       string
-    Severity      string
-    Subject       Subject
-    ClientID      ClientID
-    GrantID       GrantID
-    Resource      ResourceID
-    Scopes        ScopeSet
-    ReasonCode    string
+    Time       time.Time
+    Operation  string
+    Outcome    string
+    Subject    Subject
+    ClientID   ClientID
+    Resource   ResourceID
+    Scopes     ScopeSet
+    ReasonCode string
 }
 
 type AuditSink interface {
@@ -771,9 +731,7 @@ type AuditSink interface {
 }
 ```
 
-Audit delivery must not hold plaintext credentials, browser/session identifiers, access tokens, refresh tokens, authorization codes, PKCE verifiers, signing keys, service secrets, full request bodies, or unnecessary PII. Subject and grant identifiers should be hashed or pseudonymized when operational correlation does not require their clear values. Every field is length-bounded and CR/LF/delimiter-sanitized before it reaches a text logger. Record validation failures, authentication/authorization outcomes, out-of-order transitions, replay, grant changes, revocation, capacity refusal, key lifecycle events, and audit failures with a shared interaction identifier.
-
-The first implementation may provide a no-op sink and synchronous best-effort structured logger. Do not make token issuance depend on an external audit network service; instead expose dropped-event metrics and alerts. Logging configuration must not disable security-critical events, and tests must simulate sink failure and log-volume exhaustion.
+Audit delivery should not hold plaintext credentials or request bodies. The first implementation may provide a no-op sink and synchronous best-effort structured logger. Do not make token issuance depend on an external audit network service.
 
 ## 10. Transition API
 
@@ -813,9 +771,8 @@ type BeginAuthorizationInput struct {
 }
 
 type BeginAuthorizationResult struct {
-    Transaction   TransactionToken
-    BrowserCookie string
-    LoginContext  LoginContext
+    Transaction TransactionToken
+    LoginContext LoginContext
 }
 ```
 
@@ -836,9 +793,8 @@ The identity callback is application-specific. Its handler exchanges GEC, OIDC, 
 
 ```go
 type CompleteLoginInput[A any] struct {
-    Transaction   TransactionToken
-    BrowserCookie string
-    Principal     Principal[A]
+    Transaction TransactionToken
+    Principal   Principal[A]
 }
 
 type CompleteLoginResult struct {
@@ -866,7 +822,7 @@ The engine:
 
 ```go
 type ConsentView struct {
-    FormToken         ConsentToken
+    Token             ConsentToken
     ResourceName      string
     PrincipalName     string
     PrincipalEmail    string
@@ -882,7 +838,6 @@ type ConsentView struct {
 func (e *Engine[A]) ConsentView(
     ctx context.Context,
     token ConsentToken,
-    browserCookie string,
 ) (ConsentView, error)
 
 type ConsentDecision uint8
@@ -894,8 +849,7 @@ const (
 )
 
 type DecideConsentInput struct {
-    FormToken      ConsentToken
-    BrowserCookie  string
+    Token          ConsentToken
     Decision       ConsentDecision
     SelectedScopes []Scope
 }
@@ -905,7 +859,7 @@ type DecideConsentResult struct {
 }
 ```
 
-On approval, the engine verifies the browser-flow cookie and the unguessable one-time consent token submitted from the rendered form, generates a code, intersects selected scopes with allowed scopes, and asks the store to consume consent and create the code in one transaction. The form token is the synchronizer CSRF token: it is delivered only in the no-store consent page, stored only as a digest, and bound to the browser-flow cookie. On denial, the engine performs the same browser/CSRF checks, consumes consent, and produces an `access_denied` redirect. Posted client, redirect, lifetime, or trust metadata is ignored. The consent page explicitly identifies the unverified client, resource, scopes, exact redirect, access-token lifetime, and absolute authorization/refresh expiry.
+On approval, the engine generates a code, intersects selected scopes with allowed scopes, and asks the store to consume consent and create the code in one transaction. On denial, it consumes consent and produces an `access_denied` redirect. Posted client or redirect metadata is ignored. The unguessable, expiring, one-time consent token rendered into the no-store form is also the synchronizer CSRF token; missing, wrong, expired, and replayed values are rejected. No additional browser session or cookie subsystem is required for v0.1.
 
 ### 10.5 Exchange authorization code
 
@@ -936,7 +890,7 @@ load code without consuming
   -> return prepared credentials
 ```
 
-A mismatched attempt does not consume the code. If signing or secret generation fails, the code remains usable. If two correct exchanges race, exactly one commit succeeds. The winning commit atomically creates an `AuthorizationGrant`, links every issued access/refresh token to its `GrantID` and version, and records that ID on the code. A later correctly bound replay rejects the request and revokes the linked grant, satisfying OWASP ASVS 10.4.2 rather than merely returning `invalid_grant`.
+A mismatched attempt does not consume the code. If signing or secret generation fails, the code remains usable. If two correct exchanges race, exactly one commit succeeds.
 
 ### 10.6 Refresh
 
@@ -980,29 +934,7 @@ type RevokeInput struct {
 func (e *Engine[A]) Revoke(ctx context.Context, in RevokeInput) error
 ```
 
-The externally observable endpoint remains idempotent and does not reveal whether a token existed. Internally it revokes the matching authorization grant when client binding succeeds.
-
-### 10.8 Review, narrow, and revoke user grants
-
-The authorization server must let an authenticated principal review and control delegated authorizations without exposing general account administration:
-
-```go
-type GrantSummary struct {
-    ID          GrantID
-    ClientName  string
-    ClientTrust ClientTrust
-    Resource    ResourceID
-    Scopes      ScopeSet
-    CreatedAt   time.Time
-    ExpiresAt   time.Time
-}
-
-func (e *Engine[A]) ListGrants(ctx context.Context, subject Subject) ([]GrantSummary, error)
-func (e *Engine[A]) ReduceGrant(ctx context.Context, subject Subject, id GrantID, scopes ScopeSet) error
-func (e *Engine[A]) RevokeGrant(ctx context.Context, subject Subject, id GrantID) error
-```
-
-`ReduceGrant` accepts only a subset of the current scopes and increments the grant version. `RevokeGrant` marks the grant revoked. Access tokens carry `grant_id` and `grant_version`; resource-server verification consults grant status and rejects revoked or stale-version tokens. The application supplies strong authentication for the account-management UI, and subject ownership is checked server-side on every operation.
+The externally observable endpoint remains idempotent and does not reveal whether a token existed. Internally it revokes the matching family when client binding succeeds.
 
 ## 11. Store API: transitions, not generic CRUD
 
@@ -1058,12 +990,6 @@ type Store[A any] interface {
         StatePolicy,
     ) error
 
-    RevokeGrantForCodeReplay(
-        context.Context,
-        CodeExchangeBinding,
-        time.Time,
-    ) error
-
     GetRefreshGrant(
         context.Context,
         CredentialDigest,
@@ -1074,11 +1000,6 @@ type Store[A any] interface {
         RefreshRotation[A],
         StatePolicy,
     ) error
-
-    GetGrant(context.Context, GrantID) (AuthorizationGrant[A], error)
-    ListGrants(context.Context, Subject) ([]AuthorizationGrant[A], error)
-    ReduceGrant(context.Context, Subject, GrantID, ScopeSet, time.Time) error
-    RevokeGrant(context.Context, Subject, GrantID, time.Time) error
 
     RevokeRefreshFamily(
         context.Context,
@@ -1091,7 +1012,7 @@ type Store[A any] interface {
 }
 ```
 
-Every commit method must recheck the expected prior state inside its transaction. A prior read is advisory; the commit is authoritative. Grant replay, narrowing, and revocation transitions update the durable grant status/version in the same transaction as related refresh-family changes. This provides one revocation authority for code-replay response, user consent management, and resource-server status checks.
+Every commit method must recheck the expected prior state inside its transaction. A prior read is advisory; the commit is authoritative.
 
 ### 11.1 Store errors
 
@@ -1197,9 +1118,7 @@ The implementation owns reserved claims:
 - `jti`;
 - `client_id`;
 - `scope`;
-- `grant_id`;
-- `grant_version`;
-- `typ` fixed to the configured access-token type.
+- the configured access-token `typ`.
 
 Application claim enrichment is restricted:
 
@@ -1212,7 +1131,7 @@ type ClaimProvider[A any] interface {
 }
 ```
 
-The JWT service rejects attempts to overwrite reserved names. CoinVault may add `gec_employee_id` and `gec_authorization_version`; a RAG server may add an organization identifier. Verification uses a fixed algorithm allowlist and configured issuer key ring. It rejects `alg=none`, algorithm/key-type confusion, unexpected token types, and attacker-selected `jwk`, `jku`, `x5u`, or certificate material from the token header. `kid` is only a selector within keys already trusted for the configured issuer.
+The JWT service rejects attempts to overwrite reserved names. CoinVault may add `gec_employee_id` and `gec_authorization_version`; a RAG server may add an organization identifier. Verification uses a fixed algorithm/key-type allowlist and issuer-configured key ring. It rejects `alg=none`, the wrong token type, and attacker-selected `jwk`, `jku`, `x5u`, or certificate material from JWT headers. `kid` only selects among keys already trusted for the configured issuer.
 
 ### 13.2 Verified token
 
@@ -1225,20 +1144,18 @@ type VerifiedAccessToken struct {
     Scopes     ScopeSet
     IssuedAt   time.Time
     ExpiresAt  time.Time
-    TokenID      string
-    GrantID      GrantID
-    GrantVersion uint64
-    ExtraClaims  map[string]any
+    TokenID    string
+    ExtraClaims map[string]any
 }
 ```
 
-This type is independent of MCP. A go-go-mcp adapter translates it into `embeddable.AuthPrincipal`; a RAG middleware translates it into its request principal. The resource verifier then checks that the durable grant is active and that its current version equals the token's `GrantVersion` before route authorization.
+This type is independent of MCP. A go-go-mcp adapter translates it into `embeddable.AuthPrincipal`; a RAG middleware translates it into its request principal.
 
 ### 13.3 Key rotation
 
 Configuration supports one active signing key and multiple verification-only keys. JWKS publishes all current verification keys. New tokens use only the active key. Remove an old key only after every token signed by it has expired.
 
-Private-key file loading is an application/deployment concern. `jwttokens` accepts a signer interface so production can use Vault, KMS, or HSM-backed keys without exposing private bytes to the library. Optional PEM parsing helpers do not read arbitrary filesystem paths. Signing keys are generated with approved entropy, restricted to signature use, versioned by stable `kid`, audited on activation/retirement, backed up where policy requires, and covered by a compromise/recovery runbook. Verification overlap ends only after the maximum access-token lifetime signed by the retired key.
+Private-key file loading is an application/deployment concern. `jwttokens` should accept parsed keys or a signer interface; optional helper functions may parse PEM without reading arbitrary filesystem paths.
 
 ## 14. HTTP transport
 
@@ -1279,14 +1196,14 @@ This keeps GEC, OIDC, or SAML parsing outside generic OAuth logic while reusing 
 
 A handler should do only:
 
-1. enforce an exact HTTP method and supported content type;
-2. apply body, header, field, array, query-count, and token-size limits;
+1. allow only the endpoint's exact HTTP methods and content types;
+2. apply body, field, array, query-count, header, and bearer-token size limits;
 3. parse protocol fields with one strict decoder and reject trailing data;
 4. call one engine method;
 5. map a typed result or typed error to HTTP;
 6. set no-store and security headers.
 
-Unexpected methods return 405, unsupported media types return 415, and oversized bodies return 413. CORS is absent by default. The application server configures read-header, read, write, idle, and graceful-shutdown timeouts. Identity/back-channel adapters must use explicit request deadlines. Endpoint-specific rate/concurrency limits and durable row caps protect CPU, memory, SQLite/WAL, and third-party service spend as required by OWASP API4:2023.
+Unexpected methods return 405, unsupported media types return 415, and oversized requests return 413. CORS is absent by default. The application configures HTTP server deadlines, and identity/back-channel clients use explicit timeouts. Existing registration/state caps remain the durable resource-exhaustion control.
 
 It must not directly query SQLite or compute final grants.
 
@@ -1332,9 +1249,9 @@ The default consent page must always show:
 - selectable scopes;
 - approve and deny actions.
 
-Use `html/template`, no remote scripts/styles/images, and `Cache-Control: no-store`. First release permits branding strings and local CSS only, not an arbitrary renderer that can omit mandatory security fields.
+Use `html/template`, no remote scripts/styles/images, and `Cache-Control: no-store`. First release permits branding strings and local CSS only, not an arbitrary renderer that can omit mandatory security fields. Also show access-token lifetime and the absolute offline authorization expiry.
 
-Consent POST uses the one-time consent form token as a synchronizer token plus a `__Host-` secure, HttpOnly, SameSite browser-flow cookie. The transaction and consent rows store only credential/cookie digests. The handler also applies Fetch Metadata and Origin checks when available, but does not rely on SameSite alone. Required browser headers are:
+The minimal browser hardening is:
 
 ```text
 Content-Security-Policy: default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'
@@ -1342,11 +1259,9 @@ X-Frame-Options: DENY
 X-Content-Type-Options: nosniff
 Referrer-Policy: no-referrer
 Cache-Control: no-store
-Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
-Cross-Origin-Opener-Policy: same-origin
 ```
 
-HSTS is enabled by the HTTPS deployment owner after confirming certificate and subdomain policy. Consent pages are never framed, preventing the clickjacking case in the OWASP WSTG OAuth tests.
+This prevents clickjacking and consent-token referrer leakage without introducing a new browser-session abstraction.
 
 ## 15. Resource-server integration
 
@@ -1355,13 +1270,6 @@ HSTS is enabled by the HTTPS deployment owner after confirming certificate and s
 `pkg/oauthresource` defines protocol-neutral data and helpers:
 
 ```go
-type GrantStatusReader interface {
-    CurrentGrantStatus(
-        context.Context,
-        oauthserver.GrantID,
-    ) (oauthserver.GrantStatus, uint64, error)
-}
-
 type Verifier interface {
     VerifyAccessToken(
         context.Context,
@@ -1380,9 +1288,7 @@ type Metadata struct {
 func BearerChallenge(metadataURL string) string
 ```
 
-It should not own MCP tool authorization or RAG document authorization. Verification is a composition of cryptographic JWT validation, exact issuer/audience checks, and `GrantStatusReader`. A resource server identifies the actor by the pair `(issuer, subject)`, not by email or `sub` alone.
-
-`GrantStatusReader` may be an in-process store adapter for a colocated resource server or a protected back-channel client for a separate MCP/RAG process. The back channel uses dedicated service authentication, TLS, bounded timeouts, and a narrow grant-status response; it never accepts end-user bearer tokens as service credentials. Configuration states the maximum cache/propagation delay and failure policy. High-value routes fail closed when status cannot be established. A standardized RFC 7662 introspection endpoint may implement this port later, but the core API depends on status semantics rather than one transport.
+It should not own MCP tool authorization or RAG document authorization.
 
 ### 15.2 MCP adapter
 
@@ -1411,12 +1317,12 @@ and supplies protected-resource metadata and `WWW-Authenticate`. Long term, go-g
 A normal RAG HTTP service can use middleware that:
 
 1. extracts the bearer header;
-2. verifies signature, fixed algorithm/type, issuer, time, exact audience, and active grant/version;
+2. verifies fixed algorithm/type, issuer, time, and exact audience equal to its resource URL;
 3. checks route-required scopes;
 4. stores `VerifiedAccessToken` in context;
 5. derives application document filters from trusted token claims and server policy.
 
-Protected routes are deny-by-default: every route must declare a policy, and startup or conformance tests fail when a protected route is unclassified. Authorization runs on every request; UI visibility and model arguments are never treated as enforcement.
+Protected operations are deny-by-default and authorization runs on every request. Consumer startup/conformance tests should fail when a protected route or MCP tool lacks an explicit policy. UI visibility and model arguments never count as enforcement.
 
 Model arguments must never select authorization scopes or principal attributes.
 
@@ -1435,16 +1341,9 @@ An access token for MCP must fail at RAG because `aud` differs. Refresh grants r
 ## 16. Configuration model
 
 ```go
-type SecurityProfile string
-
-const (
-    SecurityProfileStandard      SecurityProfile = "standard"
-    SecurityProfileHighAssurance SecurityProfile = "high_assurance"
-)
-
 type Config struct {
-    Issuer          string
-    Resources       []ResourceConfig
+    Issuer        string
+    Resources     []ResourceConfig
     SupportedScopes ScopeSet
 
     AccessTTL      time.Duration
@@ -1453,10 +1352,8 @@ type Config struct {
     ConsentTTL     time.Duration
     CodeTTL        time.Duration
 
-    StatePolicy     StatePolicy
-    HTTP            HTTPPolicy
-    SecurityProfile SecurityProfile
-    GrantStatusTTL  time.Duration
+    StatePolicy StatePolicy
+    HTTP        HTTPPolicy
 }
 ```
 
@@ -1472,12 +1369,9 @@ Secure defaults:
 - HTTPS except loopback development;
 - exact resource and redirect matching;
 - bounded registration and state;
-- no dev/static token feature in production library;
-- OWASP ASVS Level 2 applicable controls as the standard profile;
-- grant-status checks for code replay, user revocation, and grant reduction;
-- consent CSRF binding and secure browser headers.
+- no dev/static token feature in production library.
 
-The library accepts values. Applications decide whether they came from Glazed, environment, Vault, files, or another configuration source. `SecurityProfileStandard` targets applicable ASVS Level 2 behavior. `SecurityProfileHighAssurance` is rejected by `New` until sender-constrained access/refresh tokens, PAR/JAR, and strong confidential-client authentication are configured; the library must never accept a high-assurance label while silently running bearer-token Level 2 behavior.
+The library accepts values. Applications decide whether they came from Glazed, environment, Vault, files, or another configuration source.
 
 ## 17. Decision records
 
@@ -1553,24 +1447,6 @@ The library accepts values. Applications decide whether they came from Glazed, e
 - **Consequences:** Extraction should happen on coordinated branches and old code is deleted after cutover.
 - **Status:** proposed
 
-### Decision: target OWASP ASVS Level 2 before cutover
-
-- **Context:** OWASP ASVS 5.0 distinguishes generally applicable public-client controls from Level 3 sender-constrained/PAR/confidential-client controls.
-- **Options considered:** implement only current CoinVault behavior; claim unspecified “best practice”; define explicit standard and high-assurance profiles.
-- **Decision:** The first production profile implements applicable Level 1 and Level 2 V10 requirements and continuously tests them. Level 3 remains an explicit unsupported profile until its controls exist end to end.
-- **Rationale:** This gives implementers a verifiable baseline without pretending that bearer tokens meet DPoP/mTLS requirements.
-- **Consequences:** Grant status, code-replay revocation, consent management, authentication context, and browser CSRF controls are first-release work. High-assurance construction fails closed.
-- **Status:** proposed
-
-### Decision: make authorization grants durable revocation units
-
-- **Context:** ASVS 10.4.2 requires revoking tokens related to a replayed code, while ASVS 10.4.9 and 10.7.3 require user-controlled grant/consent revocation.
-- **Options considered:** rely only on short JWT lifetime; keep refresh-family-only revocation; introduce a stable grant ID/version checked by resource servers.
-- **Decision:** Every successful code exchange creates one durable grant. Access and refresh tokens carry its ID/version; replay, narrowing, and revocation update that grant.
-- **Rationale:** One composable status check handles three requirements without raw-token denylists.
-- **Consequences:** Resource verification includes a grant-status dependency and an explicit maximum propagation delay.
-- **Status:** proposed
-
 ## 18. Detailed implementation plan
 
 ### Phase 0: normalize the repository
@@ -1600,10 +1476,9 @@ Create:
 - `ScopeSet`;
 - PKCE S256 validation;
 - client trust and consent snapshots;
-- principal, authentication-context, resource, grant ID, and grant-status types;
+- principal and resource types;
 - typed OAuth errors;
-- browser binding and consent CSRF values;
-- state policies, OWASP security profiles, and default validation.
+- state policies and default validation.
 
 Port tests before handlers. Add fuzz tests for URL parsing, scope normalization, and PKCE syntax.
 
@@ -1617,28 +1492,27 @@ Write engine-level scenario tests with no HTTP or SQLite:
 register -> authorize -> login -> consent -> code -> token -> refresh -> revoke
 ```
 
-Also write denial, mismatch, expiry, replay, transient revalidation, multi-resource, code-replay grant revocation, grant narrowing, user revocation, consent CSRF, and authentication-context scenarios.
+Also write denial, mismatch, expiry, replay, transient revalidation, and multi-resource scenarios.
 
 ### Phase 3: implement SQLite from store conformance tests
 
 1. Copy behavior, not concrete types, from CoinVault store tests.
 2. Create explicit schema-version migrations.
-3. Add digest-only credentials, principal codec/version, durable authorization grants, and code-to-grant linkage.
+3. Add digest-only credentials and principal codec/version.
 4. Implement one transition at a time.
 5. Add bounded admission and pruning before production integration.
-6. Add grant listing, narrowing, revocation, versioning, and status lookup.
-7. Run race, replay, and concurrent-final-slot tests.
+6. Run race and concurrent-final-slot tests.
 
 A shared conformance suite should run against both the deterministic memory store and SQLite.
 
 ### Phase 4: implement JWT tokens
 
-1. Define reserved claims, `grant_id`, `grant_version`, fixed token type, and verified token result.
+1. Define reserved claims, fixed access-token type, and verified token result.
 2. Implement RS256 signing and exact issuer/audience validation with a fixed algorithm/key-type allowlist.
-3. Reject `alg=none`, token-supplied trust material (`jwk`, `jku`, `x5u`), cross-token-type use, and claim-provider reserved-name collisions.
+3. Add claim-provider reserved-name rejection and reject token-supplied key material.
 4. Publish deterministic JWKS ordering.
-5. Test active plus overlap verification keys and signer compromise/retirement procedures.
-6. Test wrong algorithm, key type, token type, key ID, issuer, audience, expiry, missing claims, stale grant version, revoked grant, and extra claims.
+5. Test active plus overlap verification keys.
+6. Test `alg=none`, wrong algorithm/type/key ID, attacker key headers, issuer, audience, expiry, missing claims, and extra claims.
 
 ### Phase 5: implement engine transitions
 
@@ -1651,7 +1525,6 @@ Implement in flow order:
 5. `ExchangeCode`.
 6. `Refresh`.
 7. `Revoke`.
-8. `ListGrants`, `ReduceGrant`, and `RevokeGrant`.
 
 For each operation:
 
@@ -1664,11 +1537,11 @@ For each operation:
 
 ### Phase 6: implement HTTP transport
 
-Add metadata, DCR, authorization, consent, token, revocation, and authenticated grant-management handlers. Add the identity callback helper and secure default consent page.
+Add metadata, DCR, authorization, consent, token, and revocation handlers. Add the identity callback helper and secure default consent page.
 
-Implement exact method/content-type handling, synchronizer CSRF plus secure browser-flow cookie, Fetch Metadata/Origin checks, strict CSP, anti-framing, no-referrer, no-store, nosniff, no default CORS, endpoint rate/concurrency limits, and recommended HTTP/back-channel deadlines.
+Implement exact methods/content types, the consent token's CSRF semantics, anti-framing CSP, no-referrer, no-store, nosniff, no default CORS, size limits, and documented HTTP/back-channel deadlines.
 
-Protocol tests should use `httptest.Server` and one client with redirects disabled. Validate headers, status, JSON shape, redirects, CSRF/cookie binding, clickjacking defenses, no-store, content types, body bounds, methods, and exact OAuth errors.
+Protocol tests should use `httptest.Server` and one client with redirects disabled. Validate headers, status, JSON shape, redirects, consent-token failure/replay, framing defenses, no-store, body bounds, methods/content types, and exact OAuth errors.
 
 ### Phase 7: implement the three review hardenings in the library
 
@@ -1676,8 +1549,7 @@ Do not extract known defects and fix them later. Before CoinVault cutover, compl
 
 - unverified client identity and exact redirect disclosure;
 - explicit eligible/ineligible/transient refresh outcomes;
-- registration and all-table lifecycle bounds;
-- OWASP code-replay grant revocation, consent/grant management, CSRF, JWT trust, security headers, and deny-by-default resource enforcement.
+- registration and all-table lifecycle bounds.
 
 The three CoinVault design tickets are source specifications, but oh-auth becomes the implementation source of truth.
 
@@ -1702,27 +1574,59 @@ Run `GOWORK=off` against a published oh-auth version before declaring extraction
 
 ### Phase 10: add a RAG consumer
 
-Create or integrate a RAG resource server with a distinct resource URL and scopes. Prove:
+Create or integrate a RAG resource server with a distinct resource URL and scopes. Prove through deterministic local/integration tests—not a deployed smoke run at this phase—that:
 
-- MCP token rejected by RAG audience check;
-- RAG token rejected by MCP audience check;
-- same principal can authorize each independently;
+- MCP token is rejected by RAG audience checks;
+- RAG token is rejected by MCP audience checks;
+- the same principal can authorize each independently;
 - refresh remains resource-bound;
 - application document policy derives only from verified identity and scopes.
 
-### Phase 11: remove duplicate code and release
+### Phase 11: remove duplicate code and prepare release
 
 Delete CoinVault's generic provider/store/token helpers after cutover. Retain only adapters and application policy. Search for duplicate PKCE, scope, JWT, DCR, and refresh implementations.
 
-Tag oh-auth only after:
+Prepare a release candidate only after:
 
 - store and HTTP conformance pass;
 - CoinVault passes outside `go.work`;
-- one RAG consumer passes;
-- security review is complete;
+- one RAG consumer passes deterministic integration tests;
+- focused security tests are complete;
 - API docs and examples compile.
 
+Do not run a deployed smoke after each phase or adapter change. Local unit, conformance, and integration tests are the development loop.
+
+### Phase 12: run one consolidated final smoke and release
+
+Run exactly one deployed smoke after the release candidate is published and the authorization server plus MCP/RAG consumers are deployed. Expose it through one command:
+
+```bash
+make smoke-final SMOKE_CONFIG=/secure/path/smoke.yaml
+```
+
+The target invokes one orchestrator and produces one redacted JSON/Markdown summary. It may pause for the minimum human browser login/consent interaction, but it must not persist access tokens, refresh tokens, authorization codes, cookies, or service credentials in logs/artifacts.
+
+The single smoke performs:
+
+1. check authorization-server, MCP, and RAG health endpoints;
+2. fetch authorization-server metadata, JWKS, and each resource's protected-resource metadata;
+3. confirm one unauthenticated protected request returns 401 with the expected challenge;
+4. dynamically register one disposable public client;
+5. complete one authorization-code + PKCE flow for MCP;
+6. call one inexpensive read-only MCP operation;
+7. refresh the MCP grant once and use the replacement access token once;
+8. complete one authorization-code + PKCE flow for the distinct RAG resource;
+9. call one inexpensive read-only RAG operation;
+10. present one resource's token to the other resource and confirm rejection;
+11. emit a pass/fail summary and discard all local credentials.
+
+The smoke deliberately excludes refresh replay, revocation, capability mutation, key rotation, expiry waiting, rate/capacity exhaustion, concurrent races, upstream outage injection, and the exhaustive OWASP matrix. Those remain deterministic integration, security, operational, or manual release tests. Use disposable grants if a future smoke step becomes destructive.
+
+Tag/release only after this one smoke passes.
+
 ## 19. Testing strategy
+
+The development loop uses fast deterministic tests. It does **not** run deployed smoke tests after phases, commits, or ordinary refactors. All protocol negatives, races, expiry, replay, cleanup, and upstream failures use `httptest`, injected clocks, fake identity providers, and temporary SQLite databases. The only deployed smoke is Phase 12 after release-candidate deployment.
 
 ### 19.1 Pure rule tests
 
@@ -1731,10 +1635,7 @@ Tag oh-auth only after:
 - refresh never expands scopes;
 - resource/redirect URLs are exact and safely validated;
 - PKCE challenge computation matches known vectors;
-- unverified trust cannot be upgraded by DCR input;
-- grant narrowing is always a subset and increments grant version;
-- code replay revokes only the correctly linked grant;
-- authentication context is preserved and validated when a resource requires strength/recentness.
+- unverified trust cannot be upgraded by DCR input.
 
 ### 19.2 Transition sequence tests
 
@@ -1747,11 +1648,6 @@ approve twice
 exchange with wrong verifier, then correct verifier
 refresh old generation after rotation
 refresh during transient dependency error, then retry
-replay correctly bound used code -> linked grant revoked
-replay code with wrong client/redirect/verifier -> legitimate grant remains active
-reduce grant -> old token version rejected
-revoke grant -> access and refresh rejected
-approve consent with missing/wrong browser cookie or CSRF token -> rejected
 ```
 
 The public API remains ordinary; generated sequence tests are internal verification.
@@ -1765,9 +1661,7 @@ Every store implementation must pass the same suite:
 - exactly one winner under concurrency;
 - atomic code-to-refresh transition;
 - atomic refresh rotation;
-- family and durable-grant revocation on refresh replay;
-- linked-grant revocation on correctly bound authorization-code replay;
-- grant listing ownership, narrowing, revocation, and version checks;
+- family revocation on replay;
 - expiry classification;
 - capacity admission;
 - child-to-parent pruning;
@@ -1775,19 +1669,18 @@ Every store implementation must pass the same suite:
 
 ### 19.4 HTTP conformance
 
-Test metadata and all endpoint flows with structured decoding. Cover malformed bodies, trailing JSON, oversized fields, unsupported methods/content types/grants, wrong resources, redirect safety, consent CSRF/cookie binding, clickjacking headers, grant management authorization, and error redirects only after a trusted redirect has been established.
+Test metadata and all endpoint flows with structured decoding. Cover malformed bodies, trailing JSON, oversized fields, unsupported methods/content types/grants, wrong resources, redirect safety, consent-token CSRF/replay, framing headers, and error redirects only after a trusted redirect has been established.
 
-Translate the OWASP WSTG OAuth checks into automated cases: redirect URI mutations, code injection across client/principal/redirect, code replay, PKCE omission/empty/wrong verifier/downgrade, consent CSRF, framing, access-token expiry, refresh expiry, rotation, and theft detection.
+Add the focused OWASP WSTG cases needed for shipping: redirect URI mutation, code binding/replay rejection, PKCE omission/downgrade/wrong verifier, consent form token and framing, access-token expiry/wrong audience, refresh expiry/rotation/replay, and transient-revalidation retry.
 
 ### 19.5 Token tests
 
-- issuer, audience, expiry, not-before, issued-at, fixed algorithm/type, key ID, issuer+subject identity, client ID, scope, grant ID, and grant version;
-- key overlap, usage separation, compromise, and removal timing;
+- issuer, audience, expiry, not-before, issued-at, fixed algorithm/type, key ID, subject, client ID, and scope;
+- key overlap and removal timing;
 - reserved claim collision and token-supplied key-material rejection;
 - stable JWKS;
 - token for Resource A rejected for Resource B;
-- revoked/stale grant rejected within the configured propagation bound;
-- unauthenticated or scope-missing requests rejected by deny-by-default route policies.
+- missing token/scope and unclassified protected operations fail closed.
 
 ### 19.6 Security tooling
 
@@ -1801,15 +1694,21 @@ make gosec
 make govulncheck
 ```
 
-Add fuzzing for pure parsers and run dependency/secret scanning in CI. Add a machine-readable authorization matrix for actor, resource, action, scope, audience, grant status, and expected result. Make it a required CI gate following the OWASP Authorization Regression Testing guidance.
+Add fuzzing for pure parsers and run dependency/secret scanning in CI.
 
-### 19.7 Consumer acceptance
+### 19.7 Consolidated final smoke
 
-- CoinVault complete OAuth lifecycle with fake GEC fixture;
-- current real GEC profile acceptance;
-- official MCP SDK session and latest negotiated protocol;
-- Claude and ChatGPT link/call/refresh/revoke;
-- RAG route authorization and cross-resource rejection.
+There is one deployed smoke target, `make smoke-final`, and it runs only at the end of Phase 12. Its scope is the compact happy-path and one cross-audience rejection listed in Phase 12.
+
+Everything broader stays out of smoke:
+
+- fake GEC and full OAuth lifecycle run as local integration tests;
+- code/refresh replay, revocation, capability changes, expiry, malformed JWTs, and OWASP cases run deterministically before deployment;
+- key rotation, outage, storage pressure, and rate/capacity behavior run as explicit operational exercises;
+- Claude and ChatGPT each perform one link/list/call check before a release that changes host-facing OAuth behavior, not on every development turn;
+- the routine final smoke may use one representative MCP host/official SDK client, while both real hosts are a release/manual interoperability gate only when relevant.
+
+The smoke should finish in minutes excluding unavoidable human login/consent time, fail fast, and never mutate shared employee policy or reusable client grants.
 
 ## 20. Extraction mapping
 
@@ -1902,9 +1801,6 @@ These questions need concrete consumer evidence before implementation choices ar
 3. Which pure-Go SQLite driver version should be pinned after concurrency and migration tests?
 4. Does the first RAG server need organization claims in access tokens, or can it resolve policy by subject?
 5. Should oh-auth expose a small standalone server binary, or remain library-only with examples?
-6. What maximum grant-status propagation delay is acceptable for MCP and RAG resource servers?
-7. Do target hosts support DPoP, and if so, when should the high-assurance profile be implemented?
-8. Which authenticated application surface will host user grant review/reduction/revocation?
 
 None blocks domain and transition implementation. Existing grant migration is the only question that may require explicit user approval because repository guidance rejects compatibility work by default.
 
@@ -1913,27 +1809,27 @@ None blocks domain and transition implementation. Existing grant migration is th
 - [ ] I can explain principal, client, authorization server, resource server, resource, scope, PKCE, code, refresh family, and consent.
 - [ ] The repository has the correct module and no `XXX` placeholders.
 - [ ] Core package does not import HTTP, SQLite, JWT libraries, CoinVault, or MCP.
-- [ ] Principal attributes and authentication context are typed.
+- [ ] Principal attributes are typed.
 - [ ] Scope sets are canonical and immutable to callers.
 - [ ] Every grant carries exactly one resource.
 - [ ] Final scopes are always computed by the engine.
 - [ ] Store methods commit full transitions atomically.
-- [ ] Wrong bindings do not consume credentials or revoke legitimate grants.
+- [ ] Wrong bindings do not consume credentials.
 - [ ] Code exchange prepares output before commit.
-- [ ] Correctly bound authorization-code replay revokes its linked grant and tokens.
 - [ ] Refresh transient failures preserve the current grant.
 - [ ] Refresh ineligibility and replay revoke the family.
 - [ ] DCR clients are unverified and bounded.
-- [ ] Consent displays exact destination, client trust, authorization lifetime, and required security context.
-- [ ] Consent POST requires browser binding and a one-time CSRF token and cannot be framed.
-- [ ] Users can review, narrow, and revoke their own grants but not another subject's grants.
-- [ ] SQLite pruning preserves active replay and grant-status history.
-- [ ] JWT reserved claims cannot be overwritten and token header data cannot choose trust material.
-- [ ] MCP and RAG reject each other's tokens by audience and deny unclassified routes by default.
-- [ ] Resource servers use issuer+subject identity and enforce grant status/version on every request.
-- [ ] Logs exclude credentials/session identifiers and sanitize untrusted fields.
-- [ ] Input, rate, concurrency, execution-time, state-row, SQLite/WAL, and external-service budgets are enforced/monitored.
-- [ ] Store, token, engine, HTTP, OWASP ASVS, and WSTG conformance suites pass.
+- [ ] Consent displays exact destination, resource, scopes, and authorization lifetime.
+- [ ] The one-time consent form token rejects missing, wrong, expired, and replayed submissions.
+- [ ] Consent responses are no-store, unframeable, no-referrer, and nosniff.
+- [ ] SQLite pruning preserves active replay history.
+- [ ] JWT reserved claims cannot be overwritten and token headers cannot select trust material.
+- [ ] MCP and RAG reject each other's tokens by audience and deny unclassified operations by default.
+- [ ] HTTP methods, content types, sizes, and timeouts are explicit.
+- [ ] Focused OWASP/WSTG negative tests pass locally; they are not deployed smoke steps.
+- [ ] Store, token, engine, and HTTP conformance suites pass.
+- [ ] No implementation phase requires a deployed smoke run.
+- [ ] The one consolidated `make smoke-final` target passes after release-candidate deployment.
 - [ ] CoinVault passes with `GOWORK=off` against a published oh-auth version.
 - [ ] Duplicate CoinVault OAuth mechanics are removed after cutover.
 
@@ -1990,15 +1886,11 @@ None blocks domain and transition implementation. Existing grant migration is th
 - RFC 8414 — Authorization Server Metadata.
 - RFC 8707 — Resource Indicators.
 - RFC 9728 — Protected Resource Metadata.
-
-### OWASP verification sources
-
-- [OWASP ASVS 5.0 V10 — OAuth and OIDC](https://github.com/OWASP/ASVS/blob/master/5.0/en/0x19-V10-OAuth-and-OIDC.md), especially [V10.3 Resource Server](https://github.com/OWASP/ASVS/blob/master/5.0/en/0x19-V10-OAuth-and-OIDC.md#v103-oauth-resource-server), [V10.4 Authorization Server](https://github.com/OWASP/ASVS/blob/master/5.0/en/0x19-V10-OAuth-and-OIDC.md#v104-oauth-authorization-server), and [V10.7 Consent Management](https://github.com/OWASP/ASVS/blob/master/5.0/en/0x19-V10-OAuth-and-OIDC.md#v107-consent-management).
-- [OWASP OAuth2 Cheat Sheet — PKCE](https://cheatsheetseries.owasp.org/cheatsheets/OAuth2_Cheat_Sheet.html#pkce---proof-key-for-code-exchange-mechanism), [Token Replay Prevention](https://cheatsheetseries.owasp.org/cheatsheets/OAuth2_Cheat_Sheet.html#token-replay-prevention), and [Access Token Privilege Restriction](https://cheatsheetseries.owasp.org/cheatsheets/OAuth2_Cheat_Sheet.html#access-token-privilege-restriction).
-- [OWASP REST Security — JWT](https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html#jwt), [workflow state](https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html#preventing-out-of-order-api-execution), [input validation](https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html#input-validation), and [security headers](https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html#security-headers).
-- [OWASP WSTG — OAuth Authorization Server Weaknesses](https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/05-Authorization_Testing/05.1-Testing_for_OAuth_Authorization_Server_Weaknesses).
-- [OWASP API4:2023 — Unrestricted Resource Consumption, How To Prevent](https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/#how-to-prevent).
-- Downloaded review corpus and checksums: `sources/owasp/README.md` and `sources/owasp/SHA256SUMS`.
+- [OWASP OAuth2 Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/OAuth2_Cheat_Sheet.html), especially PKCE, replay prevention, and access-token privilege restriction.
+- [OWASP REST Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html), especially JWT, methods, workflow state, input validation, and security headers.
+- [OWASP WSTG OAuth Authorization Server Weaknesses](https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/05-Authorization_Testing/05.1-Testing_for_OAuth_Authorization_Server_Weaknesses).
+- Local OWASP source manifest: `sources/owasp/README.md`.
+- Deferred controls and full ASVS crosswalk: `design-doc/02-deferred-owasp-hardening-and-higher-assurance-roadmap.md`.
 
 ## 26. Definition of done
 
@@ -2013,162 +1905,26 @@ The extraction is complete when:
 7. cross-resource tokens are rejected;
 8. CoinVault passes full validation with `GOWORK=off` against a published version;
 9. old duplicate code is deleted rather than retained as compatibility fallback;
-10. operational docs cover key rotation, state backup, pruning, quotas, grant-status availability, and incident revocation;
-11. correctly bound code replay revokes every token linked to its authorization grant;
-12. users can review, narrow, and revoke delegated grants;
-13. consent is CSRF-bound, unframeable, no-store, and discloses client/resource/scope/lifetime;
-14. JWT trust is fixed by configuration and does not follow attacker-controlled token headers;
-15. resource servers deny by default and verify issuer, subject, audience, scope, authentication context when required, and active grant version on every request;
-16. the applicable OWASP ASVS Level 2 and WSTG matrices are required CI gates;
-17. any Level 3/high-assurance profile remains unavailable until sender-constrained tokens, PAR/JAR, and strong confidential-client authentication are implemented end to end.
+10. operational docs cover key rotation, state backup, pruning, quotas, and incident revocation;
+11. consent responses apply the minimal browser headers and one-time form-token checks;
+12. JWT verification uses fixed trust configuration and rejects attacker-selected key material;
+13. MCP and RAG enforcement is deny-by-default on every protected operation;
+14. the focused OWASP/WSTG shipping test set passes deterministically before deployment;
+15. one consolidated, non-destructive final smoke passes after release-candidate deployment.
 
-## 27. OWASP security review and requirement crosswalk
+## 27. Minimal OWASP shipping delta
 
-### 27.1 Review method and assurance target
+The complete downloaded OWASP corpus remains under `sources/owasp/`, but v0.1 does not claim ASVS certification. The following additions are the entire required delta over the original extraction design:
 
-The design was reviewed against the downloaded OWASP corpus in `sources/owasp/` on 2026-09-01. The primary normative checklist is [OWASP ASVS 5.0 V10 OAuth and OIDC](https://github.com/OWASP/ASVS/blob/master/5.0/en/0x19-V10-OAuth-and-OIDC.md). Cheat sheets and WSTG provide implementation and test detail; API4:2023 provides resource-consumption requirements.
-
-The target is **applicable ASVS Level 2**, not an OWASP certification claim. Requirements owned by OAuth clients are documented as consumer obligations and tested in acceptance fixtures where oh-auth supplies example clients. OIDC-only requirements are not applicable because the first release does not issue ID Tokens. Level 3 controls are listed explicitly as deferred rather than being weakened.
-
-Status meanings:
-
-- **Designed:** the original design already contained the control.
-- **Amended:** this OWASP review added or strengthened the control.
-- **Consumer obligation:** oh-auth cannot enforce it alone; integration contracts and tests must.
-- **Deferred Level 3:** not present in the standard bearer-token profile.
-- **Not applicable:** feature/role is outside the first release.
-
-### 27.2 ASVS V10 generic, client, and resource-server controls
-
-| Requirement | Status | Design response |
-|---|---|---|
-| V10.1.1 Tokens only reach necessary components | Consumer obligation | Token responses are no-store and never logged; examples forbid browser local storage and require backend/secure host storage. Resource servers receive access tokens, never refresh tokens. |
-| V10.1.2 Values bound to same client/user-agent transaction | Designed + amended | PKCE and client `state` remain transaction-specific. The authorization server adds its own browser-flow cookie and consent CSRF binding. |
-| V10.2.1 Client CSRF defense | Consumer obligation | Client fixtures must use transaction-specific PKCE and validate returned `state`; oh-auth preserves state exactly. |
-| V10.2.2 Authorization-server mix-up defense | Consumer obligation | Clients pin issuer metadata and validate `iss`; distinct issuer/resource acceptance tests are required. |
-| V10.2.3 Minimum requested scopes | Consumer obligation | Example clients request only route-required scopes; the engine still intersects every boundary. This is Level 3 client guidance but cheap to test. |
-| V10.3.1 Exact audience | Designed | Each access token has one exact `ResourceID`; every resource verifier checks it. |
-| V10.3.2 Enforce delegated claims | Designed + amended | Deny-by-default route policies inspect scope and resource on every request; grant status/version is also checked. |
-| V10.3.3 Stable user identity | Amended | Resource code identifies a user by configured issuer plus stable subject, never email or subject alone across issuers. |
-| V10.3.4 Authentication strength/recentness | Amended | `AuthenticationContext` carries authentication time, methods, and assurance so sensitive resources can require them. |
-| V10.3.5 Sender-constrained access token | Deferred Level 3 | Standard profile uses exact-audience, short-lived bearer JWTs plus online grant status. High-assurance construction fails until DPoP/mTLS is implemented end to end. |
-
-Relevant links: [ASVS V10.1](https://github.com/OWASP/ASVS/blob/master/5.0/en/0x19-V10-OAuth-and-OIDC.md#v101-generic-oauth-and-oidc-security), [V10.2](https://github.com/OWASP/ASVS/blob/master/5.0/en/0x19-V10-OAuth-and-OIDC.md#v102-oauth-client), and [V10.3](https://github.com/OWASP/ASVS/blob/master/5.0/en/0x19-V10-OAuth-and-OIDC.md#v103-oauth-resource-server).
-
-### 27.3 ASVS V10.4 authorization-server controls
-
-| Requirement | Status | Design response |
-|---|---|---|
-| V10.4.1 Exact registered redirect URI | Designed | `RedirectURI` is validated at registration and compared as the exact stored string for authorization/code exchange. No suffix, prefix, wildcard, or post-validation normalization. |
-| V10.4.2 One-time code and replay revocation | **Amended** | A successful exchange records `IssuedGrantID`; a second correctly bound exchange atomically revokes that grant. Wrong bindings do not consume or revoke. |
-| V10.4.3 Short code lifetime | Designed | Default code lifetime is one minute, satisfying the strict Level 3 upper bound as well. |
-| V10.4.4 Only needed grants; no implicit/password | Designed | First release supports only authorization code plus refresh. Response type is only `code`. |
-| V10.4.5 Refresh replay mitigation | Designed | Public clients use one-time rotation; replay revokes the authorization grant/family. DPoP/mTLS remains optional high assurance. |
-| V10.4.6 Mandatory PKCE, no plain | Designed | S256 is mandatory at authorization and verifier validation is mandatory at exchange. Downgrade/omission tests are required. |
-| V10.4.7 Unauthenticated DCR abuse | Designed + amended | Metadata is allowlist/length validated, storage/rate bounded, clients are unverified, and every unverified request receives explicit warning/consent. |
-| V10.4.8 Absolute refresh expiry | Designed | Refresh family retains one absolute expiration across rotations. Sliding expiry cannot exceed it. |
-| V10.4.9 User revocation | **Amended** | Authenticated users can list, narrow, and revoke grants. Resource checks reject linked access tokens; refresh is revoked. |
-| V10.4.10 Confidential-client authentication | Not applicable | First release supports public clients only. Adding confidential clients requires a separate accepted design. |
-| V10.4.11 Required client scopes only | Designed | Registration allows only configured supported scopes; token scopes are further intersected. |
-| V10.4.12 Response mode restriction | Deferred Level 3 | Only default query response for `code` is supported; arbitrary `response_mode` is rejected. PAR/JAR profile remains unavailable. |
-| V10.4.13 Code flow with PAR | Deferred Level 3 | High-assurance profile requires PAR before it can be enabled. |
-| V10.4.14 Sender-constrained access tokens | Deferred Level 3 | Requires DPoP/mTLS support in authorization server, clients, MCP/RAG adapters, and resource verification. |
-| V10.4.15 Protected authorization details | Not applicable/Level 3 | Rich Authorization Requests are not supported in first release. |
-| V10.4.16 Strong confidential-client auth | Not applicable/Level 3 | No confidential clients in first release. |
-
-Relevant links: [ASVS V10.4](https://github.com/OWASP/ASVS/blob/master/5.0/en/0x19-V10-OAuth-and-OIDC.md#v104-oauth-authorization-server), [OAuth2 Cheat Sheet PKCE](https://cheatsheetseries.owasp.org/cheatsheets/OAuth2_Cheat_Sheet.html#pkce---proof-key-for-code-exchange-mechanism), and [Token Replay Prevention](https://cheatsheetseries.owasp.org/cheatsheets/OAuth2_Cheat_Sheet.html#token-replay-prevention).
-
-### 27.4 ASVS V10.7 consent controls
-
-| Requirement | Status | Design response |
-|---|---|---|
-| V10.7.1 Consent for every unverified request | Designed | Dynamic clients are unverified and always receive explicit consent; no remembered-consent bypass is in the first release. |
-| V10.7.2 Clear client/resource/scope/lifetime | **Amended** | Consent shows client name/trust, exact redirect origin/URI, resource, scope descriptions, access-token lifetime, and absolute authorization expiry. |
-| V10.7.3 Review/modify/revoke consent | **Amended** | Grant inventory supports review, subset-only scope reduction, and revocation with subject ownership checks. |
-
-The consent decision is also treated as a server-enforced transaction following [OWASP Transaction Authorization — significant transaction data](https://cheatsheetseries.owasp.org/cheatsheets/Transaction_Authorization_Cheat_Sheet.html#11-transaction-authorization-method-has-to-allow-a-user-to-identify-and-acknowledge-significant-transaction-data), [allowed transitions](https://cheatsheetseries.owasp.org/cheatsheets/Transaction_Authorization_Cheat_Sheet.html#25-application-should-control-which-transaction-state-transitions-are-allowed), and [final authorization gate](https://cheatsheetseries.owasp.org/cheatsheets/Transaction_Authorization_Cheat_Sheet.html#28-system-should-check-each-transaction-execution-and-make-sure-it-has-been-properly-authorized).
-
-### 27.5 Browser and HTTP hardening
-
-The original design's no-store, `html/template`, and no-remote-content policy was directionally correct but incomplete. Amendments:
-
-- synchronizer CSRF token and secure `__Host-` browser-flow cookie;
-- Fetch Metadata and Origin validation as defense in depth;
-- mandatory CSP `form-action 'self'` and `frame-ancestors 'none'`;
-- `X-Frame-Options: DENY` for legacy clients;
-- `Referrer-Policy: no-referrer` so consent/transaction URLs are not disclosed;
-- `X-Content-Type-Options: nosniff` and exact response content types;
-- no default CORS and no wildcard credentialed CORS;
-- exact HTTP method allowlists with 405;
-- strict request content types with 415;
-- generic client errors with wrapped internal causes.
-
-Relevant sections: [CSRF synchronizer tokens](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#synchronizer-token-pattern), [SameSite limitations](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html#limitations-of-samesite), [CSP form-action](https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html#4-restricting-form-submissions), [CSP framing defense](https://cheatsheetseries.owasp.org/cheatsheets/Content_Security_Policy_Cheat_Sheet.html#defense-against-framing-attacks), [HTTP cache/header guidance](https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#security-headers), and [unvalidated redirects](https://cheatsheetseries.owasp.org/cheatsheets/Unvalidated_Redirects_and_Forwards_Cheat_Sheet.html#preventing-unvalidated-redirects-and-forwards).
-
-### 27.6 JWT, grant status, and key management
-
-OWASP requires token consumers to establish trust from configuration, not attacker-controlled JWT headers. The amended JWT design:
-
-- fixes accepted algorithms and key types;
-- rejects unsecured and cross-token-type JWTs;
-- treats `kid` only as a selector within an issuer-pinned key ring;
-- never fetches or trusts `jwk`, `jku`, `x5u`, or `x5c` directly from token headers;
-- verifies issuer, audience, expiration, not-before, issued-at bounds, subject, client ID, scope, grant ID/version, and token type;
-- uses a public-key signature so resource servers never receive signing secrets;
-- checks durable grant status/version after cryptographic verification;
-- supports signer interfaces backed by a secret manager, KMS, or HSM;
-- documents generation, usage separation, activation, overlap, retirement, backup, compromise, and recovery.
-
-Relevant sections: [OWASP REST Security — JWT](https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html#jwt), [JWT unsecured tokens](https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_Cheat_Sheet.html#unsecured-jwts), [key type confusion](https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_Cheat_Sheet.html#key-type-confusion), [trusting key material named in headers](https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_Cheat_Sheet.html#trusting-key-material-named-in-the-token-header), [Key Management lifecycle](https://cheatsheetseries.owasp.org/cheatsheets/Key_Management_Cheat_Sheet.html#key-management-lifecycle-best-practices), and [Secrets lifecycle](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html#27-secret-lifecycle).
-
-### 27.7 Authorization, logs, and resource consumption
-
-Authorization adapters must follow [OWASP Authorization — deny by default](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html#deny-by-default), [validate every request](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html#validate-the-permissions-on-every-request), and [least privilege](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html#enforce-least-privileges). This becomes a startup/testable route-policy registry rather than documentation alone.
-
-Audit events include when, operation, outcome, interaction, subject/client/grant/resource identifiers, severity, and reason. They exclude or pseudonymize access/refresh tokens, authorization codes, browser/session identifiers, PKCE values, keys, service secrets, request bodies, and unnecessary PII. Untrusted fields are sanitized against log injection. Audit sink failure does not grant authority or crash the service and is itself metered. See [OWASP Logging — events](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html#which-events-to-log), [event attributes](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html#event-attributes), [data to exclude](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html#data-to-exclude), and [verification](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html#verification).
-
-The lifecycle design already addressed storage growth. OWASP API4 expands the budget checklist to:
-
-- maximum body, field, array, query, header, and bearer-token sizes;
-- endpoint rate and concurrent-request limits;
-- HTTP and identity/back-channel execution deadlines;
-- SQLite row, file, WAL, and disk-space high-water alerts;
-- cryptographic work budgets;
-- audit queue/disk limits;
-- third-party request and spend limits;
-- controlled 413/429/503 refusal before resource exhaustion.
-
-See [API4:2023 How To Prevent](https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/#how-to-prevent) and [REST input validation](https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html#input-validation).
-
-### 27.8 OWASP-derived verification matrix
-
-Before cutover, CI must automate at least this matrix:
-
-| Area | Required negative/abuse tests |
+| Addition | Implementation impact |
 |---|---|
-| Redirect | unregistered host/path, prefix/suffix, case/encoding variants, fragment/query policy, open redirect chain; no code sent |
-| Code binding | other client, principal, redirect, resource, verifier, expired code, repeated correct exchange |
-| PKCE | omitted challenge, empty challenge, `plain`, unknown method, omitted/empty/wrong verifier, verifier from another code |
-| Consent | missing/wrong flow cookie, missing/wrong/replayed CSRF, forged scopes/client/redirect/lifetime, cross-origin POST, framing attempt |
-| DCR | oversized body/fields/arrays, unsupported metadata/grants/scopes, unsafe URI, quota/rate/concurrency exhaustion |
-| Refresh | expired/revoked/used token, concurrent rotation, replay family revocation, transient revalidation retry, absolute expiry |
-| Grant management | other subject's grant, scope expansion attempt, stale access-token version, revoked grant, code-replay revocation |
-| JWT | `alg=none`, algorithm/key confusion, unknown `kid`, attacker `jwk/jku/x5u`, wrong `typ/iss/aud`, expired/not-yet-valid, missing claims |
-| Resource server | missing token, wrong audience/scope/issuer/subject semantics, inactive grant, unclassified route, auth-strength mismatch |
-| Workflow | out-of-order/repeated transaction, login, consent, code, refresh, and revoke operations |
-| Resource use | body/header/token limits, rate/concurrency limits, slow upstream, store capacity, log sink failure/full disk simulation |
+| Consent headers | Set CSP anti-framing/form restrictions, X-Frame-Options, no-referrer, no-store, and nosniff. |
+| Consent form token | Treat the existing random, expiring, one-time consent token as the synchronizer token and test failure/replay. No new cookie/session subsystem. |
+| Consent lifetime | Show access-token lifetime and absolute offline authorization expiry. |
+| JWT trust | Fix algorithm/type/key ring; reject `none`, wrong type, and token-supplied key material. Mostly verifier tests. |
+| HTTP strictness | Enforce methods, content types, sizes, and server/upstream timeouts. |
+| Consumer enforcement | Deny protected MCP/RAG operations by default; validate audience and scopes every request. |
+| Focused tests | Automate the relevant WSTG redirect, code, PKCE, consent, lifetime, audience, and refresh cases locally; do not turn the matrix into deployed smoke steps. |
+| Final smoke | Run one non-destructive end-to-end orchestrator only after release-candidate deployment. |
 
-This matrix is derived from [OWASP WSTG OAuth Authorization Server Weaknesses](https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/05-Authorization_Testing/05.1-Testing_for_OAuth_Authorization_Server_Weaknesses) and [Authorization Regression Testing](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Regression_Testing_Cheat_Sheet.html#authorization-test-matrix-design). It is machine-readable test data and a required pull-request gate, not a one-time penetration checklist.
-
-### 27.9 Residual risks and explicitly deferred controls
-
-- **Bearer-token replay:** Standard profile limits impact through one audience, short lifetime, narrow scopes, and grant status. It does not satisfy ASVS Level 3 DPoP/mTLS requirements.
-- **Revocation-status availability:** Separate resource servers need a protected, observable status path. Its failure mode and cache TTL must be chosen explicitly; high-value routes should fail closed.
-- **Client-side token storage:** oh-auth can document and test example clients but cannot force external MCP hosts to store tokens correctly.
-- **PAR/JAR and confidential clients:** unsupported inputs are rejected. They are not partially implemented.
-- **Rich Authorization Requests:** absent in first release; scopes/resource remain the only authorization request detail.
-- **Immediate access-token invalidation:** depends on grant-status propagation. The configured bound is a security parameter and must be tested under outage.
-
-### 27.10 Local evidence
-
-Downloaded source files are under `sources/owasp/`. `sources/owasp/README.md` records canonical URLs and relevant sections; `sources/owasp/SHA256SUMS` records the reviewed bytes. `scripts/01-download-owasp-sources.sh` refreshes the corpus. A future refresh must review upstream diffs before updating this crosswalk.
+Everything else discovered during the OWASP review is intentionally outside the v0.1 critical path and documented in [Deferred OWASP Hardening and Higher Assurance Roadmap](02-deferred-owasp-hardening-and-higher-assurance-roadmap.md). The source manifest provides direct links to the broader guidance without converting every recommendation into initial implementation scope.

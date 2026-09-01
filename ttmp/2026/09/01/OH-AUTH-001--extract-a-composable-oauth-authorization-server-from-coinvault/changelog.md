@@ -40,3 +40,21 @@ Replaced the reMarkable bundle with the OWASP-amended design, diary, and source 
 ### Related Files
 
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/design-doc/01-composable-oauth-server-extraction-analysis-design-and-implementation-guide.md — OWASP-amended published design
+
+## 2026-09-01
+
+Restored the original extraction architecture as the v0.1 baseline, retained only a small OWASP shipping delta, and moved grant status, user management, ASVS profiles, DPoP/PAR, and expanded governance into a separate deferred roadmap.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/design-doc/01-composable-oauth-server-extraction-analysis-design-and-implementation-guide.md — Streamlined v0.1 design
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/design-doc/02-deferred-owasp-hardening-and-higher-assurance-roadmap.md — Non-blocking future hardening roadmap
+
+
+## 2026-09-01
+
+Consolidated deployed smoke into one non-destructive final acceptance target after release-candidate deployment; all development phases use local deterministic tests.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/design-doc/01-composable-oauth-server-extraction-analysis-design-and-implementation-guide.md — Phase 12 and consolidated smoke strategy
