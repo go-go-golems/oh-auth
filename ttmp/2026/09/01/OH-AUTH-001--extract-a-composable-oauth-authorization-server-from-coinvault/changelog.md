@@ -75,3 +75,11 @@ Step 8: Implemented validated core values, typed transition ports, deterministic
 ### Related Files
 
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/oauthserver/engine.go — Reusable OAuth transition engine
+
+## 2026-09-01
+
+Step 9: Added pure-Go SQLite, fixed-trust JWT, HTTP transport, and resource-server adapters with focused tests (commit 5e00283).
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/sqlitestore/store.go — Durable OAuth state
