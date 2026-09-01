@@ -22,8 +22,6 @@ RelatedFiles:
       Note: Defines application-owned identity and revalidation behavior that remains outside core
     - Path: ws://coinvault/internal/mcpoauth/provider.go
       Note: Primary extraction source for protocol, transitions, HTTP, JWT, and MCP coupling
-    - Path: ws://coinvault/internal/mcpoauth/store.go
-      Note: Primary extraction source for durable state and atomic credential transitions
     - Path: ws://go-go-mcp/pkg/embeddable/auth_provider.go
       Note: Defines the current MCP resource-server provider integration boundary
     - Path: ws://go-go-mcp/pkg/embeddable/official_backend.go
@@ -45,6 +43,7 @@ LastUpdated: 2026-09-02T00:50:00-04:00
 WhatFor: Give a new engineer the architecture, APIs, invariants, package map, extraction sequence, and validation plan for the oh-auth library.
 WhenToUse: Read before implementing oh-auth, moving CoinVault OAuth code, or integrating authorization into an MCP or RAG server.
 ---
+
 
 
 

@@ -58,14 +58,13 @@ RelatedFiles:
       Note: Evidence manifest used for the OWASP review
     - Path: ws://coinvault/internal/mcpoauth/provider.go
       Note: Main evidence for concern coupling and transition extraction
-    - Path: ws://coinvault/internal/mcpoauth/store.go
-      Note: Main evidence for atomic storage behavior
 ExternalSources: []
 Summary: Chronological evidence, design choices, and delivery record for extracting CoinVault OAuth into oh-auth.
 LastUpdated: 2026-09-01T15:40:00-04:00
 WhatFor: Preserve how the extraction boundary and composable API were derived from CoinVault, go-go-mcp, the review hardenings, and the new repository.
 WhenToUse: Read before implementing or resuming OH-AUTH-001.
 ---
+
 
 
 
