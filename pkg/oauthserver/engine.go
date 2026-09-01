@@ -370,6 +370,13 @@ func (e *Engine[A]) Refresh(ctx context.Context, in RefreshInput) (TokenResponse
 	if !grant.RevokedAt.IsZero() || now.After(grant.ExpiresAt) || grant.ClientID != clientID {
 		return TokenResponse{}, invalidGrant(ErrBinding)
 	}
+	if !grant.ConsumedAt.IsZero() {
+		if err := e.deps.Store.RevokeRefreshFamily(ctx, grant.FamilyID, now); err != nil {
+			return TokenResponse{}, oauthError(ErrorTemporary, "refresh replay revocation could not be persisted", 503, err)
+		}
+		e.audit(ctx, "refresh", "revoked", grant.Principal, grant.ClientID, grant.Resource, grant.Scopes, "refresh_replay")
+		return TokenResponse{}, invalidGrant(ErrRevoked)
+	}
 	revalidation, err := e.deps.Revalidator.Revalidate(ctx, grant.Principal.Subject)
 	if err != nil {
 		return TokenResponse{}, oauthError(ErrorTemporary, "identity could not be revalidated", 503, err)

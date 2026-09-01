@@ -69,6 +69,33 @@ func validRefreshGrant(t *testing.T) oauthserver.RefreshGrant[struct{}] {
 	}
 }
 
+func TestRefreshReplayRevokesBeforeRevalidation(t *testing.T) {
+	grant := validRefreshGrant(t)
+	grant.ConsumedAt = time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	store := &refreshFaultStore{grant: grant}
+	engine := newFaultEngine(t, store, oauthserver.Revalidation[struct{}]{Status: oauthserver.RevalidationUnknown})
+
+	_, err := engine.Refresh(t.Context(), oauthserver.RefreshInput{RefreshToken: "refresh-000000000000000000000000000000000000", ClientID: "client-1"})
+	var oauthErr *oauthserver.OAuthError
+	if !errors.As(err, &oauthErr) || oauthErr.Code != oauthserver.ErrorInvalidGrant || !store.revoked {
+		t.Fatalf("refresh replay error = %#v, revoked=%v", err, store.revoked)
+	}
+}
+
+func TestRefreshReplayPropagatesRevocationFailure(t *testing.T) {
+	failure := errors.New("database unavailable")
+	grant := validRefreshGrant(t)
+	grant.ConsumedAt = time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	store := &refreshFaultStore{grant: grant, revokeErr: failure}
+	engine := newFaultEngine(t, store, oauthserver.Revalidation[struct{}]{Status: oauthserver.RevalidationEligible, Principal: grant.Principal})
+
+	_, err := engine.Refresh(t.Context(), oauthserver.RefreshInput{RefreshToken: "refresh-000000000000000000000000000000000000", ClientID: "client-1"})
+	var oauthErr *oauthserver.OAuthError
+	if !errors.As(err, &oauthErr) || oauthErr.Code != oauthserver.ErrorTemporary || !errors.Is(err, failure) {
+		t.Fatalf("refresh replay revocation error = %#v", err)
+	}
+}
+
 func TestRefreshPropagatesIneligibleRevocationFailure(t *testing.T) {
 	failure := errors.New("database unavailable")
 	store := &refreshFaultStore{grant: validRefreshGrant(t), revokeErr: failure}
