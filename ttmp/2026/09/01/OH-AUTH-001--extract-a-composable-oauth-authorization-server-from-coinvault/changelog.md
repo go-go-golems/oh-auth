@@ -58,3 +58,12 @@ Consolidated deployed smoke into one non-destructive final acceptance target aft
 ### Related Files
 
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/design-doc/01-composable-oauth-server-extraction-analysis-design-and-implementation-guide.md — Phase 12 and consolidated smoke strategy
+
+## 2026-09-01
+
+Step 7: Normalized oh-auth into a library module, removed template binary/logging/release artifacts, and established oauthserver/oauthresource package roots (commit 12c8af9).
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/README.md — Library documentation
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/go.mod — Public module normalization

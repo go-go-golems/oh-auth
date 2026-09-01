@@ -12,8 +12,18 @@ DocType: reference
 Intent: long-term
 Owners: []
 RelatedFiles:
+    - Path: repo://Makefile
+      Note: Library-only validation targets
+    - Path: repo://README.md
+      Note: Replaced template documentation with library contract
     - Path: repo://go.mod
-      Note: Repository normalization evidence and preserved user toolchain edit
+      Note: |-
+        Repository normalization evidence and preserved user toolchain edit
+        Normalized public module path while preserving toolchain
+    - Path: repo://pkg/oauthresource/doc.go
+      Note: Initial resource package boundary
+    - Path: repo://pkg/oauthserver/doc.go
+      Note: Initial core package boundary
     - Path: repo://ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/scripts/01-download-owasp-sources.sh
       Note: Reproducible OWASP source download and checksum workflow
     - Path: repo://ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/sources/owasp/README.md
@@ -28,6 +38,7 @@ LastUpdated: 2026-09-01T15:40:00-04:00
 WhatFor: Preserve how the extraction boundary and composable API were derived from CoinVault, go-go-mcp, the review hardenings, and the new repository.
 WhenToUse: Read before implementing or resuming OH-AUTH-001.
 ---
+
 
 
 
@@ -467,3 +478,78 @@ The final smoke is an orchestrated happy path across authorization, MCP, and RAG
 - Final command contract: `make smoke-final SMOKE_CONFIG=/secure/path/smoke.yaml`.
 - Target duration: minutes, excluding unavoidable human login/consent.
 - Smoke credentials are disposable and never logged or persisted as artifacts.
+
+## Step 7: Normalize the oh-auth repository
+
+This step converted the generated template into a library-shaped repository before adding OAuth behavior. The module path now matches the intended public import path, the placeholder binary and generated logging scaffolding are gone, and the repository no longer advertises a binary release that it cannot build.
+
+The checkpoint establishes a clean dependency boundary for the implementation phases: `pkg/oauthserver` and `pkg/oauthresource` exist as the initial public package roots, while adapters will be added beneath those boundaries rather than around template artifacts.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Let's implement4 the ticket, commit at appropriate intervals and keep a detailed diary as you work (using the diary format from the skill). Print out a brutalist work slip with the plan / different phases for the ticket. then before stsarting a phase, plrint a split about the phase, and print one when the phase is done."
+
+**Assistant interpretation:** Implement OH-AUTH-001 incrementally, commit each meaningful phase, maintain the ticket diary, and print plan/start/completion slips for every phase.
+
+**Inferred user intent:** Make the extraction auditable and resumable while getting working code rather than only a design.
+
+**Commit (code):** 12c8af9 — "chore: normalize oh-auth module"
+
+### What I did
+
+- Printed the six-phase implementation plan slip.
+- Printed the Phase 1 start and completion slips.
+- Changed `go.mod` to `github.com/go-go-golems/oh-auth` and ran `GOWORK=off go mod tidy`.
+- Replaced the template README with the library purpose, package boundaries, security boundaries, and development commands.
+- Removed the empty `cmd/XXX`, placeholder package files, logcopter generation, GoReleaser binary configuration, and release workflow.
+- Simplified the Makefile to library checks and retained an intentionally failing `smoke-final` placeholder until the final integration phase.
+- Added package roots at `pkg/oauthserver` and `pkg/oauthresource`.
+
+### Why
+
+- The generated binary/release setup was unrelated to a reusable library and retained `XXX` placeholders.
+- `GOWORK=off` must resolve the module as a consumer would, without workspace-only assumptions.
+- Removing the placeholder smoke target later is safer than allowing a false passing release gate.
+
+### What worked
+
+- `GOWORK=off go mod tidy` completed successfully.
+- `GOWORK=off go test ./... -count=1` passed.
+- The pre-commit test and lint hooks passed.
+- The repository no longer contains `XXX` in build/release configuration.
+
+### What didn't work
+
+- A tool invocation initially sent a shell command to the file-writing tool and failed validation: `Validation failed for tool "write": path: must have required properties path, content`. The command was rerun with the shell tool and succeeded.
+- The first exact edit for removing the logcopter dependency did not match because `go.mod` had `// indirect`; the second edit used the exact text and succeeded.
+
+### What I learned
+
+- The template's indirect dependency graph was retained solely by the logcopter tool requirement; removing the tool and running `go mod tidy` cleaned it up.
+- A library-only project should not retain an empty executable or binary-oriented release workflow.
+
+### What was tricky to build
+
+- Normalization had to remove template identity without touching the pre-existing `toolchain go1.26.7` choice. The module declaration and dependency cleanup were changed, but the toolchain line was preserved exactly.
+
+### What warrants a second pair of eyes
+
+- Confirm deleting the template release workflow is appropriate for the eventual library publication process.
+- Confirm the public package paths remain compatible with the design before implementation code is added.
+
+### What should be done in the future
+
+- Add actual package documentation and APIs before publishing a version.
+- Replace the intentionally failing `smoke-final` placeholder with the final orchestrator only after deployed integration exists.
+
+### Code review instructions
+
+- Start with `go.mod`, `README.md`, `Makefile`, and `.github/workflows/push.yml`.
+- Search for `XXX`, `logcopter`, and `goreleaser` outside ticket evidence.
+- Validate with `GOWORK=off go test ./... -count=1` and `GOWORK=off golangci-lint run -v`.
+
+### Technical details
+
+- Module: `github.com/go-go-golems/oh-auth`.
+- Public roots: `pkg/oauthserver`, `pkg/oauthresource`.
+- Checkpoint commit: `12c8af9962afbf5be4a9decff471af449860bbdd`.
