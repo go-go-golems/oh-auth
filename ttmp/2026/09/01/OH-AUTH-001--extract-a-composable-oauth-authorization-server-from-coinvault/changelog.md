@@ -100,3 +100,11 @@ Completed the CoinVault cutover to oh-auth and pushed review-fixed dependency up
 
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/coinvault/cmd/coinvault/cmds/mcp.go — Published oh-auth dependency wiring
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/coinvault/internal/mcpoauth/provider.go — Application adapter over oh-auth
+
+## 2026-09-01
+
+Step 11: Replaced dynamically concatenated pruning SQL with fixed statements after CI GoSec reported G202; local test, race, vet, lint, and GoSec checks now pass.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/sqlitestore/store.go — Static SQL allowlist for expiry pruning

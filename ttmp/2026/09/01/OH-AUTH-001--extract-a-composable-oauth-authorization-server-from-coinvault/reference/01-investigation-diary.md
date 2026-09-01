@@ -835,3 +835,73 @@ The review fixes protect interoperability and resource bounds at the actual boun
 - oh-auth fix commit: `6e652b0d94657e5abd9306a41f622293bb4dda64`.
 - oh-auth regression-test commit: `f0688badba5732e2bfb08a1ca557f36bae5af81e`.
 - CoinVault dependency commit: `078648d5d31875f52338855e6cec0e6127968b27`.
+
+## Step 11: Clear the post-review GoSec finding
+
+After the five requested review fixes were pushed, the repository's dependency-scanning workflow exposed one additional security-scan finding in the new pruning helper. The implementation was safe because its table names were locally fixed, but the scanner correctly rejected string-built SQL as an avoidable injection-shaped pattern.
+
+The helper now carries a fixed query literal for each transient table. This preserves the same transactional cleanup behavior while making the SQL allowlist explicit to both reviewers and static analysis.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 10)
+
+**Assistant interpretation:** Continue closing review-related issues until the pushed oh-auth branch has clean local and CI security validation.
+
+**Inferred user intent:** Avoid leaving the pull request green only on unit tests while a security workflow still fails.
+
+**Commit (code):** a7859a4 — "fix: satisfy SQL security scan"
+
+### What I did
+
+- Read the failed GitHub Dependency Scanning run `33547065100`.
+- Confirmed the only finding was `G202 (CWE-89)` at `pkg/sqlitestore/store.go:492`, caused by concatenating a locally selected table name into a DELETE statement.
+- Replaced dynamic table concatenation with three fixed SQL query literals.
+- Ran the full oh-auth test, race, vet, and GoSec checks.
+- Pushed the fix to the PR branch.
+
+### Why
+
+- Static analysis should not need to infer that an internal table-name list is safe.
+- Fixed SQL literals are clearer, eliminate the warning, and retain parameterized values for expiry timestamps.
+
+### What worked
+
+- `GOWORK=off go test ./... -count=1` passed.
+- `GOWORK=off go test -race ./... -count=1` passed.
+- `GOWORK=off go vet ./...` passed.
+- `GOWORK=off gosec -exclude=G101,G304,G301,G306,G204 -exclude-dir=.history ./...` passed with `Issues : 0`.
+- `GOWORK=off golangci-lint run -v` passed.
+- The fix was pushed as `a7859a4`.
+
+### What didn't work
+
+- The first CI run after the five review fixes failed only at GoSec with `G202 (CWE-89): SQL string concatenation` on the pruning helper. No runtime test failed.
+
+### What I learned
+
+- A security scanner finding can be worth fixing even when a dynamic value is internally constrained; removing the pattern makes the invariant executable and reviewable.
+
+### What was tricky to build
+
+- The cleanup loop needed to remain compact without reintroducing dynamic SQL. Keeping the table-specific query and result counter together preserves the loop while making every statement statically visible.
+
+### What warrants a second pair of eyes
+
+- Confirm the next GitHub Dependency Scanning run is green after commit `a7859a4`.
+- Keep the SQLite schema and serialized expiry format under review as the store evolves.
+
+### What should be done in the future
+
+- Add a scheduled dependency update workflow or address the repository's unrelated moderate default-branch dependency alert separately.
+
+### Code review instructions
+
+- Review `pkg/sqlitestore/store.go:485-535` and compare its fixed queries with `TestAdmissionPrunesExpiredTransientState`.
+- Validate with `GOWORK=off go test ./... -count=1`, `GOWORK=off go test -race ./... -count=1`, `GOWORK=off go vet ./...`, and the repository GoSec command.
+
+### Technical details
+
+- Failed run: `33547065100`.
+- Finding: `G202 (CWE-89)` from `"DELETE FROM "+item.table+...`.
+- Corrected commit: `a7859a4199ee3ae3c27b83b8332f5290abde941d`.
