@@ -83,3 +83,11 @@ Step 9: Added pure-Go SQLite, fixed-trust JWT, HTTP transport, and resource-serv
 ### Related Files
 
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/sqlitestore/store.go — Durable OAuth state
+
+## 2026-09-01
+
+Step 10: Addressed all five PR #1 review findings in oh-auth and advanced CoinVault to the corrected published pseudo-version.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/httptransport/server.go — Review fixes

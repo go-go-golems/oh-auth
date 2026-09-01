@@ -21,7 +21,11 @@ RelatedFiles:
         Repository normalization evidence and preserved user toolchain edit
         Normalized public module path while preserving toolchain
     - Path: repo://pkg/httptransport/server.go
-      Note: OAuth HTTP boundary and consent transport (commit 5e00283)
+      Note: |-
+        OAuth HTTP boundary and consent transport (commit 5e00283)
+        PR #1 RFC DTO, issuer, and form-boundary fixes
+    - Path: repo://pkg/httptransport/server_test.go
+      Note: Regression coverage for review findings
     - Path: repo://pkg/jwttokens/service.go
       Note: Fixed-trust JWT issuer/verifier (commit 5e00283)
     - Path: repo://pkg/memorytest/store.go
@@ -40,8 +44,14 @@ RelatedFiles:
       Note: Transition and capability contracts (commit 523eeea)
     - Path: repo://pkg/oauthserver/scopes.go
       Note: Canonical immutable scope sets (commit 523eeea)
+    - Path: repo://pkg/sqlitestore/codec_test.go
+      Note: Arbitrary principal codec regression
+    - Path: repo://pkg/sqlitestore/prune_test.go
+      Note: Expired-state capacity regression
     - Path: repo://pkg/sqlitestore/store.go
-      Note: Durable digest-only transition store (commit 5e00283)
+      Note: |-
+        Durable digest-only transition store (commit 5e00283)
+        Transactional expiry admission and opaque codec bytes
     - Path: repo://ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/scripts/01-download-owasp-sources.sh
       Note: Reproducible OWASP source download and checksum workflow
     - Path: repo://ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/sources/owasp/README.md
@@ -56,6 +66,7 @@ LastUpdated: 2026-09-01T15:40:00-04:00
 WhatFor: Preserve how the extraction boundary and composable API were derived from CoinVault, go-go-mcp, the review hardenings, and the new repository.
 WhenToUse: Read before implementing or resuming OH-AUTH-001.
 ---
+
 
 
 
@@ -739,3 +750,89 @@ The adapter checkpoint is still intentionally independent of CoinVault and MCP. 
 - Signing: RS256 with configured `kid`; default JWT header type `at+jwt`.
 - HTTP route mounting uses path-only patterns so handlers enforce exact methods.
 - Adapter checkpoint: `5e002834e844b30b2df2e47550dceb9a80f49cb8`.
+
+## Step 10: Address PR #1 review findings across oh-auth and CoinVault
+
+This step closed all five concrete Codex findings on `https://github.com/go-go-golems/oh-auth/pull/1`. The fixes were applied to the reusable library first, then CoinVault was advanced to the corrected oh-auth pseudo-version so the previous extraction ticket consumes the same behavior.
+
+The review fixes protect interoperability and resource bounds at the actual boundaries: RFC dynamic registration uses wire-compatible DTOs, discovery is issuer-stable behind proxies, admission prunes expired rows transactionally, arbitrary principal codec bytes survive storage, and form limits apply before parsing.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Address code review issues: https://github.com/go-go-golems/oh-auth/pull/1 too in the previous ticket\n\n[REMINDER] Output a <summary>...</summary> block at the VERY END of your response. This is mandatory."
+
+**Assistant interpretation:** Read PR #1's review comments, implement every requested fix in oh-auth, and update the prior CoinVault extraction ticket/dependency as needed.
+
+**Inferred user intent:** Make the reusable OAuth implementation and its consumer reviewable and safe before continuing feature phases.
+
+**Commits (code):** `6e652b0` — "fix: address OAuth review findings"; `f0688ba` — "test: cover OAuth review fixes"; CoinVault `078648d` — "chore: update oh-auth review fixes"
+
+### What I did
+
+- Read all five inline Codex findings from PR #1.
+- Added RFC-compatible registration request/response DTOs using `client_name`, `redirect_uris`, and string-valued `scope`.
+- Derived discovery and registration URLs from configured `Config.Issuer`, not request Host/TLS state.
+- Applied SQLite expiry pruning inside every transactional admission path and removed expired refresh families before capacity checks.
+- Changed principal codec envelope fields from `json.RawMessage` to `[]byte`, preserving arbitrary codec output through JSON base64 encoding.
+- Added form content-type checks, `http.MaxBytesReader`, field limits, and configurable array limits before token, consent, and revocation processing.
+- Added regression tests for issuer/Host separation, RFC registration shape, expired-state admission, arbitrary codec bytes, and form size limits.
+- Updated CoinVault to the corrected oh-auth pseudo-version and preserved the direct adapter cutover.
+
+### Why
+
+- The findings all affected externally observable interoperability or denial-of-service boundaries rather than cosmetic code quality.
+- Fixing the library before continuing consumer work prevents CoinVault from encoding known-bad behavior.
+
+### What worked
+
+- All five PR findings have corresponding code changes and regression coverage.
+- `GOWORK=off go test ./... -count=1` passed in oh-auth.
+- `GOWORK=off go test -race ./... -count=1` passed in oh-auth.
+- `GOWORK=off go vet ./...` passed in oh-auth.
+- `GOWORK=off golangci-lint run -v` passed in oh-auth.
+- CoinVault targeted tests passed with `GOWORK=off` against the published oh-auth pseudo-version.
+- The oh-auth fix commit was pushed to `task/coinvault-oidc-mcp`.
+
+### What didn't work
+
+- `GOWORK=on go test ...` failed because this Go toolchain requires an absolute `GOWORK` path: `go: invalid GOWORK: not an absolute path`. The test was rerun with workspace auto-selection and later with `GOWORK=off`.
+- `go get github.com/go-go-golems/oh-auth@task/coinvault-oidc-mcp` rejected the slash-containing branch name: `invalid version: version "task/coinvault-oidc-mcp" invalid: disallowed version string`. Fetching the exact pushed commit produced a reproducible pseudo-version instead.
+- CoinVault's first pre-push attempt ran its full Dagger/web build and was killed during golangci-lint with `Killed` and `make: *** [Makefile:142: lint] Error 137`; its unit tests passed. The dependency-only follow-up commit was created after targeted validation; its push is being retried separately, while the full pre-push resource issue remains an environment limitation.
+
+### What I learned
+
+- ServeMux method patterns can hide handler-level method contracts; path-only mounting is the right choice when exact OAuth methods matter.
+- Capacity pruning is part of admission correctness, not merely background maintenance.
+- JSON envelopes must treat codec output as opaque bytes unless the public codec contract explicitly promises JSON.
+
+### What was tricky to build
+
+- Expired rows are represented by serialized `ExpiresAt` values inside JSON payloads, while consumed timestamps live in columns. The admission helper deletes by payload expiry and refresh families by their maximum serialized expiry in the same transaction before counting rows.
+- Form limits need to cover both the body and repeated fields. Wrapping the body before `ParseForm`, then checking individual field sizes and selected repeated array keys, avoids parsing an unbounded request under a smaller configured policy.
+
+### What warrants a second pair of eyes
+
+- Verify the SQLite payload-expiry comparison remains correct across timestamp formatting and future schema migrations.
+- Review whether every consumer should allow HTTP methods with content-type parameters or require the current exact media type.
+- Re-run the complete CoinVault pre-push hook in a host with enough memory; the targeted tests passed but the prior full lint process was killed.
+- Request a fresh PR review against commit `f0688ba` after the branch is pushed.
+
+### What should be done in the future
+
+- Add a shared conformance harness that exercises both memory and SQLite stores for all admission and transition cases.
+- Keep the CoinVault dependency pinned to a published oh-auth commit until a release tag exists.
+- Replace the temporary `smoke-final` placeholder only during the final smoke phase.
+
+### Code review instructions
+
+- Start with `pkg/httptransport/server.go`, `pkg/sqlitestore/store.go`, and their regression tests.
+- Inspect `coinvault/internal/mcpoauth/provider.go` and `cmd/coinvault/cmds/mcp.go` to verify the consumer uses oh-auth rather than the deleted local provider/store.
+- Validate oh-auth with `GOWORK=off go test ./... -count=1`, `GOWORK=off go test -race ./... -count=1`, `GOWORK=off go vet ./...`, and `GOWORK=off golangci-lint run -v`.
+- Validate CoinVault with `GOWORK=off go test ./internal/mcpoauth ./cmd/coinvault/cmds ./internal/mcpconn -count=1`.
+
+### Technical details
+
+- Review findings addressed: IDs `3907215835`, `3907215845`, `3907215856`, `3907215862`, and `3907215872`.
+- oh-auth fix commit: `6e652b0d94657e5abd9306a41f622293bb4dda64`.
+- oh-auth regression-test commit: `f0688badba5732e2bfb08a1ca557f36bae5af81e`.
+- CoinVault dependency commit: `078648d5d31875f52338855e6cec0e6127968b27`.
