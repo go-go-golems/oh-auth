@@ -25,8 +25,8 @@ func newServer(t *testing.T, policies ...oauthserver.HTTPPolicy) (*httptransport
 	t.Helper()
 	scopes, _ := oauthserver.NewScopeSet("read")
 	config := oauthserver.DefaultConfig("https://auth.example.test", []oauthserver.ResourceConfig{{ID: "https://mcp.example.test/mcp", DisplayName: "MCP", SupportedScopes: []string{"read"}}}, scopes)
-	store := memorytest.NewStore[struct{}]()
 	clock := memorytest.NewClock(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC))
+	store := memorytest.NewStoreWithClock[struct{}](clock)
 	resources, err := oauthserver.NewStaticResourceRegistry(config.Resources, config.SupportedScopes)
 	if err != nil {
 		t.Fatal(err)

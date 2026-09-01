@@ -208,7 +208,7 @@ func (e *Engine[A]) CompleteLogin(ctx context.Context, in CompleteLoginInput[A])
 		return CompleteLoginResult{}, oauthError(ErrorTemporary, "could not create consent", 503, err)
 	}
 	consent := ConsentSession[A]{Token: consentToken, Client: snapshotClient(client, auth.RedirectURI), State: auth.State, PKCEChallenge: auth.PKCEChallenge, Principal: in.Principal, AllowedScopes: allowed, Resource: auth.Resource, ExpiresAt: e.deps.Clock.Now().Add(e.config.ConsentTTL)}
-	if err := e.deps.Store.CommitLogin(ctx, LoginCommit[A]{TransactionDigest: DigestCredential(string(auth.Token)), Consent: consent}, e.config.StatePolicy); err != nil {
+	if err := e.deps.Store.CommitLogin(ctx, LoginCommit[A]{TransactionDigest: DigestCredential(string(in.Transaction)), Consent: consent}, e.config.StatePolicy); err != nil {
 		return CompleteLoginResult{}, mapStoreError(err, ErrorInvalidGrant)
 	}
 	return CompleteLoginResult{ConsentToken: consentToken, ConsentURL: "/oauth/consent?token=" + url.QueryEscape(string(consentToken))}, nil
@@ -230,7 +230,7 @@ func (e *Engine[A]) ConsentView(ctx context.Context, token ConsentToken) (Consen
 	for _, scope := range consent.AllowedScopes.Values() {
 		scopes = append(scopes, ConsentScope{Scope: scope})
 	}
-	return ConsentView{Token: consent.Token, ResourceName: resource.DisplayName, PrincipalName: consent.Principal.DisplayName, PrincipalEmail: consent.Principal.Email, ClientName: consent.Client.DisplayName, ClientTrust: consent.Client.Trust, RedirectOrigin: consent.Client.RedirectOrigin, RedirectURI: string(consent.Client.RedirectURI), AccessTokenTTL: e.config.AccessTTL, AuthorizationEnds: consent.ExpiresAt.Add(e.config.RefreshTTL), Scopes: scopes}, nil
+	return ConsentView{Token: token, ResourceName: resource.DisplayName, PrincipalName: consent.Principal.DisplayName, PrincipalEmail: consent.Principal.Email, ClientName: consent.Client.DisplayName, ClientTrust: consent.Client.Trust, RedirectOrigin: consent.Client.RedirectOrigin, RedirectURI: string(consent.Client.RedirectURI), AccessTokenTTL: e.config.AccessTTL, AuthorizationEnds: consent.ExpiresAt.Add(e.config.RefreshTTL), Scopes: scopes}, nil
 }
 
 type ConsentDecision uint8
@@ -275,7 +275,7 @@ func (e *Engine[A]) DecideConsent(ctx context.Context, in DecideConsentInput) (D
 		}
 		code = &AuthorizationCodeRecord[A]{Digest: DigestCredential(string(rawCode)), ClientID: consent.Client.ID, RedirectURI: consent.Client.RedirectURI, PKCEChallenge: consent.PKCEChallenge, Principal: consent.Principal, Scopes: selected, Resource: consent.Resource, State: consent.State, ExpiresAt: e.deps.Clock.Now().Add(e.config.CodeTTL)}
 	}
-	result, err := e.deps.Store.CommitConsent(ctx, ConsentCommit[A]{ConsentDigest: DigestCredential(string(consent.Token)), Code: valueOrEmpty(code), Decision: in.Decision}, e.config.StatePolicy)
+	result, err := e.deps.Store.CommitConsent(ctx, ConsentCommit[A]{ConsentDigest: DigestCredential(string(in.Token)), Code: valueOrEmpty(code), Decision: in.Decision}, e.config.StatePolicy)
 	if err != nil {
 		return DecideConsentResult{}, mapStoreError(err, ErrorInvalidGrant)
 	}

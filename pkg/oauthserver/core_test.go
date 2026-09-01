@@ -52,8 +52,8 @@ func TestEngineOAuthLifecycle(t *testing.T) {
 	scopes, _ := oauthserver.NewScopeSet("documents:read", "documents:write")
 	resourceID := "https://rag.example.test/api"
 	config := oauthserver.DefaultConfig("https://auth.example.test", []oauthserver.ResourceConfig{{ID: resourceID, DisplayName: "RAG", SupportedScopes: []string{"documents:read", "documents:write"}}}, scopes)
-	store := memorytest.NewStore[struct{}]()
 	clock := memorytest.NewClock(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC))
+	store := memorytest.NewStoreWithClock[struct{}](clock)
 	secrets := &memorytest.Secrets{}
 	resources, err := oauthserver.NewStaticResourceRegistry(config.Resources, config.SupportedScopes)
 	if err != nil {

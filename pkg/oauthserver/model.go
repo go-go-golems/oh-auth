@@ -55,7 +55,7 @@ type ConsentClientSnapshot struct {
 }
 
 type AuthorizationTransaction struct {
-	Token           TransactionToken
+	Token           TransactionToken `json:"-"`
 	ClientID        ClientID
 	RedirectURI     RedirectURI
 	State           string
@@ -67,7 +67,7 @@ type AuthorizationTransaction struct {
 }
 
 type ConsentSession[A any] struct {
-	Token         ConsentToken
+	Token         ConsentToken `json:"-"`
 	Client        ConsentClientSnapshot
 	State         string
 	PKCEChallenge PKCEChallenge

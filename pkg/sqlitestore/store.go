@@ -16,6 +16,7 @@ import (
 type Store[A any] struct {
 	db    *sql.DB
 	codec oauthserver.PrincipalCodec[A]
+	clock oauthserver.Clock
 }
 
 type JSONPrincipalCodec[A any] struct{}
@@ -29,16 +30,23 @@ func (JSONPrincipalCodec[A]) DecodePrincipal(data []byte) (oauthserver.Principal
 	return principal, err
 }
 
-func Open[A any](ctx context.Context, path string, codec oauthserver.PrincipalCodec[A]) (*Store[A], error) {
+func Open[A any](ctx context.Context, path string, codec oauthserver.PrincipalCodec[A], clocks ...oauthserver.Clock) (*Store[A], error) {
 	if codec == nil {
 		codec = JSONPrincipalCodec[A]{}
+	}
+	if len(clocks) > 1 || (len(clocks) == 1 && clocks[0] == nil) {
+		return nil, errors.New("SQLite store clock configuration is invalid")
+	}
+	clock := oauthserver.Clock(oauthserver.SystemClock{})
+	if len(clocks) == 1 {
+		clock = clocks[0]
 	}
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 	db.SetMaxOpenConns(1)
-	store := &Store[A]{db: db, codec: codec}
+	store := &Store[A]{db: db, codec: codec, clock: clock}
 	if err := store.configure(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -79,7 +87,7 @@ func (s *Store[A]) RegisterClient(ctx context.Context, client oauthserver.Client
 		return err
 	}
 	defer rollback(tx)
-	now := time.Now().UTC()
+	now := s.clock.Now().UTC()
 	if _, err := pruneTx(ctx, tx, policy, now); err != nil {
 		return err
 	}
@@ -146,7 +154,7 @@ func (s *Store[A]) CreateAuthorization(ctx context.Context, state oauthserver.Au
 		return err
 	}
 	defer rollback(tx)
-	if _, err := pruneTx(ctx, tx, policy, time.Now().UTC()); err != nil {
+	if _, err := pruneTx(ctx, tx, policy, s.clock.Now().UTC()); err != nil {
 		return err
 	}
 	var count int
@@ -194,7 +202,7 @@ func (s *Store[A]) CommitLogin(ctx context.Context, commit oauthserver.LoginComm
 		return err
 	}
 	defer rollback(tx)
-	if _, err := pruneTx(ctx, tx, policy, time.Now().UTC()); err != nil {
+	if _, err := pruneTx(ctx, tx, policy, s.clock.Now().UTC()); err != nil {
 		return err
 	}
 	var consumed sql.NullString
@@ -221,7 +229,7 @@ func (s *Store[A]) CommitLogin(ctx context.Context, commit oauthserver.LoginComm
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	now := s.clock.Now().UTC().Format(time.RFC3339Nano)
 	if _, err := tx.ExecContext(ctx, "INSERT INTO oauth_consents(digest,payload) VALUES(?,?)", digestBytes(commit.Consent.Token), payload); isConstraint(err) {
 		return oauthserver.ErrConflict
 	} else if err != nil {
@@ -262,7 +270,7 @@ func (s *Store[A]) CommitConsent(ctx context.Context, commit oauthserver.Consent
 		return oauthserver.ConsentCommitResult{}, err
 	}
 	defer rollback(tx)
-	if _, err := pruneTx(ctx, tx, policy, time.Now().UTC()); err != nil {
+	if _, err := pruneTx(ctx, tx, policy, s.clock.Now().UTC()); err != nil {
 		return oauthserver.ConsentCommitResult{}, err
 	}
 	var payload []byte
@@ -297,7 +305,7 @@ func (s *Store[A]) CommitConsent(ctx context.Context, commit oauthserver.Consent
 			return oauthserver.ConsentCommitResult{}, err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE oauth_consents SET consumed_at=? WHERE digest=? AND consumed_at IS NULL", time.Now().UTC().Format(time.RFC3339Nano), commit.ConsentDigest[:]); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE oauth_consents SET consumed_at=? WHERE digest=? AND consumed_at IS NULL", s.clock.Now().UTC().Format(time.RFC3339Nano), commit.ConsentDigest[:]); err != nil {
 		return oauthserver.ConsentCommitResult{}, err
 	}
 	return oauthserver.ConsentCommitResult{RedirectURI: ""}, tx.Commit()
@@ -334,7 +342,7 @@ func (s *Store[A]) CommitCodeExchange(ctx context.Context, commit oauthserver.Co
 		return err
 	}
 	defer rollback(tx)
-	if _, err := pruneTx(ctx, tx, policy, time.Now().UTC()); err != nil {
+	if _, err := pruneTx(ctx, tx, policy, s.clock.Now().UTC()); err != nil {
 		return err
 	}
 	var consumed sql.NullString
@@ -369,7 +377,7 @@ func (s *Store[A]) CommitCodeExchange(ctx context.Context, commit oauthserver.Co
 	} else if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE oauth_codes SET consumed_at=? WHERE digest=? AND consumed_at IS NULL", time.Now().UTC().Format(time.RFC3339Nano), commit.CodeDigest[:]); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE oauth_codes SET consumed_at=? WHERE digest=? AND consumed_at IS NULL", s.clock.Now().UTC().Format(time.RFC3339Nano), commit.CodeDigest[:]); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -412,7 +420,7 @@ func (s *Store[A]) CommitRefreshRotation(ctx context.Context, rotation oauthserv
 		return err
 	}
 	defer rollback(tx)
-	if _, err := pruneTx(ctx, tx, policy, time.Now().UTC()); err != nil {
+	if _, err := pruneTx(ctx, tx, policy, s.clock.Now().UTC()); err != nil {
 		return err
 	}
 	var family string
@@ -427,7 +435,7 @@ func (s *Store[A]) CommitRefreshRotation(ctx context.Context, rotation oauthserv
 		return oauthserver.ErrBinding
 	}
 	if consumed.Valid || revoked.Valid {
-		if err := revokeFamilyTx(ctx, tx, rotation.FamilyID, time.Now().UTC()); err != nil {
+		if err := revokeFamilyTx(ctx, tx, rotation.FamilyID, s.clock.Now().UTC()); err != nil {
 			return err
 		}
 		if err := tx.Commit(); err != nil {
@@ -455,7 +463,7 @@ func (s *Store[A]) CommitRefreshRotation(ctx context.Context, rotation oauthserv
 	} else if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE oauth_refresh_grants SET consumed_at=? WHERE digest=? AND consumed_at IS NULL", time.Now().UTC().Format(time.RFC3339Nano), rotation.CurrentDigest[:]); err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE oauth_refresh_grants SET consumed_at=? WHERE digest=? AND consumed_at IS NULL", s.clock.Now().UTC().Format(time.RFC3339Nano), rotation.CurrentDigest[:]); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -481,7 +489,7 @@ func (s *Store[A]) Prune(ctx context.Context, policy oauthserver.StatePolicy) (o
 		return oauthserver.PruneStats{}, err
 	}
 	defer rollback(tx)
-	stats, err := pruneTx(ctx, tx, policy, time.Now().UTC())
+	stats, err := pruneTx(ctx, tx, policy, s.clock.Now().UTC())
 	if err != nil {
 		return stats, err
 	}

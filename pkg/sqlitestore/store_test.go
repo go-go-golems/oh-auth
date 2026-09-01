@@ -1,7 +1,9 @@
 package sqlitestore_test
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
@@ -12,7 +14,8 @@ import (
 
 func TestStoreTransitionsAndDigestOnlyState(t *testing.T) {
 	ctx := context.Background()
-	store, err := sqlitestore.Open[struct{}](ctx, filepath.Join(t.TempDir(), "oauth.db"), nil)
+	databasePath := filepath.Join(t.TempDir(), "oauth.db")
+	store, err := sqlitestore.Open[struct{}](ctx, databasePath, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,6 +47,13 @@ func TestStoreTransitionsAndDigestOnlyState(t *testing.T) {
 	if err != nil || gotConsent.Principal.Subject != principal.Subject {
 		t.Fatalf("get consent: %+v %v", gotConsent, err)
 	}
+	rawDB, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rawDB.Close() }()
+	assertPayloadOmitsCredential(t, rawDB, "SELECT payload FROM oauth_authorizations LIMIT 1", string(txToken))
+	assertPayloadOmitsCredential(t, rawDB, "SELECT payload FROM oauth_consents LIMIT 1", string(consentToken))
 	codeToken, _ := oauthserver.NewAuthorizationCode("code-000000000000000000000000000000000000")
 	code := oauthserver.AuthorizationCodeRecord[struct{}]{Digest: oauthserver.DigestCredential(string(codeToken)), ClientID: client.ID, RedirectURI: client.RedirectURIs[0], PKCEChallenge: challenge, Principal: principal, Scopes: scopes, Resource: resource, ExpiresAt: now.Add(time.Minute)}
 	if _, err := store.CommitConsent(ctx, oauthserver.ConsentCommit[struct{}]{ConsentDigest: oauthserver.DigestCredential(string(consentToken)), Code: code, Decision: oauthserver.ConsentDecisionApprove}, policy); err != nil {
@@ -74,5 +84,16 @@ func TestStoreTransitionsAndDigestOnlyState(t *testing.T) {
 	rotated, err := store.GetRefreshGrant(ctx, next.Digest)
 	if err != nil || rotated.RevokedAt.IsZero() {
 		t.Fatalf("family was not revoked: %+v %v", rotated, err)
+	}
+}
+
+func assertPayloadOmitsCredential(t *testing.T, db *sql.DB, query, secret string) {
+	t.Helper()
+	var payload []byte
+	if err := db.QueryRowContext(t.Context(), query).Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(payload, []byte(secret)) {
+		t.Fatal("payload persisted raw credential")
 	}
 }

@@ -11,6 +11,7 @@ import (
 
 type Store[A any] struct {
 	mu          sync.Mutex
+	clock       oauthserver.Clock
 	clients     map[oauthserver.ClientID]oauthserver.Client
 	authorizers map[oauthserver.CredentialDigest]oauthserver.AuthorizationTransaction
 	consents    map[oauthserver.CredentialDigest]oauthserver.ConsentSession[A]
@@ -19,13 +20,20 @@ type Store[A any] struct {
 }
 
 func NewStore[A any]() *Store[A] {
-	return &Store[A]{clients: make(map[oauthserver.ClientID]oauthserver.Client), authorizers: make(map[oauthserver.CredentialDigest]oauthserver.AuthorizationTransaction), consents: make(map[oauthserver.CredentialDigest]oauthserver.ConsentSession[A]), codes: make(map[oauthserver.CredentialDigest]oauthserver.AuthorizationCodeRecord[A]), refresh: make(map[oauthserver.CredentialDigest]oauthserver.RefreshGrant[A])}
+	return NewStoreWithClock[A](oauthserver.SystemClock{})
+}
+
+func NewStoreWithClock[A any](clock oauthserver.Clock) *Store[A] {
+	if clock == nil {
+		panic("memory store clock is required")
+	}
+	return &Store[A]{clock: clock, clients: make(map[oauthserver.ClientID]oauthserver.Client), authorizers: make(map[oauthserver.CredentialDigest]oauthserver.AuthorizationTransaction), consents: make(map[oauthserver.CredentialDigest]oauthserver.ConsentSession[A]), codes: make(map[oauthserver.CredentialDigest]oauthserver.AuthorizationCodeRecord[A]), refresh: make(map[oauthserver.CredentialDigest]oauthserver.RefreshGrant[A])}
 }
 
 func (s *Store[A]) RegisterClient(_ context.Context, client oauthserver.Client, policy oauthserver.StatePolicy) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := time.Now().UTC()
+	now := s.clock.Now().UTC()
 	for id, existing := range s.clients {
 		if existing.Trust == oauthserver.ClientTrustUnverified && !existing.LastUsedAt.After(now.Add(-policy.Registration.UnverifiedClientTTL)) && !s.clientHasLiveAuthorizationLocked(id, now) {
 			delete(s.clients, id)
@@ -99,7 +107,7 @@ func (s *Store[A]) CommitLogin(_ context.Context, commit oauthserver.LoginCommit
 	if _, exists := s.consents[consentDigest]; exists {
 		return oauthserver.ErrConflict
 	}
-	state.ConsumedAt = time.Now().UTC()
+	state.ConsumedAt = s.clock.Now().UTC()
 	s.authorizers[commit.TransactionDigest] = state
 	s.consents[consentDigest] = commit.Consent
 	return nil
@@ -133,7 +141,7 @@ func (s *Store[A]) CommitConsent(_ context.Context, commit oauthserver.ConsentCo
 		}
 		s.codes[digest] = commit.Code
 	}
-	consent.ConsumedAt = time.Now().UTC()
+	consent.ConsumedAt = s.clock.Now().UTC()
 	s.consents[commit.ConsentDigest] = consent
 	return oauthserver.ConsentCommitResult{RedirectURI: string(consent.Client.RedirectURI)}, nil
 }
@@ -165,7 +173,7 @@ func (s *Store[A]) CommitCodeExchange(_ context.Context, commit oauthserver.Code
 	if len(s.refresh) >= policy.Capacity.MaxRefreshGrants {
 		return oauthserver.ErrCapacity
 	}
-	code.ConsumedAt = time.Now().UTC()
+	code.ConsumedAt = s.clock.Now().UTC()
 	s.codes[commit.CodeDigest] = code
 	s.refresh[commit.Refresh.Digest] = *commit.Refresh
 	return nil
@@ -190,13 +198,13 @@ func (s *Store[A]) CommitRefreshRotation(_ context.Context, rotation oauthserver
 		return oauthserver.ErrBinding
 	}
 	if !current.ConsumedAt.IsZero() || !current.RevokedAt.IsZero() {
-		s.revokeFamilyLocked(rotation.FamilyID, time.Now().UTC())
+		s.revokeFamilyLocked(rotation.FamilyID, s.clock.Now().UTC())
 		return oauthserver.ErrRevoked
 	}
 	if len(s.refresh) >= policy.Capacity.MaxRefreshGrants {
 		return oauthserver.ErrCapacity
 	}
-	current.ConsumedAt = time.Now().UTC()
+	current.ConsumedAt = s.clock.Now().UTC()
 	s.refresh[rotation.CurrentDigest] = current
 	s.refresh[rotation.Successor.Digest] = rotation.Successor
 	return nil
@@ -218,7 +226,7 @@ func (s *Store[A]) revokeFamilyLocked(family oauthserver.RefreshFamilyID, at tim
 func (s *Store[A]) Prune(_ context.Context, policy oauthserver.StatePolicy) (oauthserver.PruneStats, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	now := time.Now().UTC()
+	now := s.clock.Now().UTC()
 	stats := oauthserver.PruneStats{}
 	for digest, state := range s.authorizers {
 		if !state.ConsumedAt.IsZero() && now.Sub(state.ConsumedAt) > policy.Retention.ConsumedState {
