@@ -174,7 +174,7 @@ func (s *Store[A]) CommitCodeExchange(_ context.Context, commit oauthserver.Code
 	if err := oauthserver.ValidateCodeExchangeCommit(code, commit, now); err != nil {
 		return err
 	}
-	if len(s.refresh) >= policy.Capacity.MaxRefreshGrants {
+	if s.activeRefreshGrantCountLocked() >= policy.Capacity.MaxRefreshGrants {
 		return oauthserver.ErrCapacity
 	}
 	code.ConsumedAt = now
@@ -210,14 +210,25 @@ func (s *Store[A]) CommitRefreshRotation(_ context.Context, rotation oauthserver
 	if err := oauthserver.ValidateRefreshRotation(current, rotation, now); err != nil {
 		return err
 	}
-	if len(s.refresh) >= policy.Capacity.MaxRefreshGrants {
-		return oauthserver.ErrCapacity
+	if rotation.Successor.Generation >= policy.Capacity.MaxRefreshGenerations {
+		s.revokeFamilyLocked(rotation.FamilyID, now)
+		return oauthserver.ErrRevoked
 	}
 	current.ConsumedAt = now
 	s.refresh[rotation.CurrentDigest] = current
 	s.refresh[rotation.Successor.Digest] = rotation.Successor
 	return nil
 }
+func (s *Store[A]) activeRefreshGrantCountLocked() int {
+	count := 0
+	for _, grant := range s.refresh {
+		if grant.ConsumedAt.IsZero() && grant.RevokedAt.IsZero() {
+			count++
+		}
+	}
+	return count
+}
+
 func (s *Store[A]) RevokeRefreshFamily(_ context.Context, family oauthserver.RefreshFamilyID, at time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -275,6 +286,16 @@ func (s *Store[A]) pruneExpiredLocked(now time.Time) oauthserver.PruneStats {
 func (s *Store[A]) clientHasLiveStateLocked(id oauthserver.ClientID, now time.Time) bool {
 	for _, state := range s.authorizers {
 		if state.ClientID == id && state.ConsumedAt.IsZero() && state.ExpiresAt.After(now) {
+			return true
+		}
+	}
+	for _, consent := range s.consents {
+		if consent.Client.ID == id && consent.ConsumedAt.IsZero() && consent.ExpiresAt.After(now) {
+			return true
+		}
+	}
+	for _, code := range s.codes {
+		if code.ClientID == id && code.ConsumedAt.IsZero() && code.ExpiresAt.After(now) {
 			return true
 		}
 	}

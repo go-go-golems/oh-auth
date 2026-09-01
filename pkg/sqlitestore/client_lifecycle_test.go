@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -73,7 +74,7 @@ func TestUnverifiedClientWithLiveRefreshFamilyIsNotEvicted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	payload := []byte(`{"ClientID":"client-old","ExpiresAt":"` + time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano) + `"}`)
+	payload := []byte(`{"grant":{"ClientID":"client-old","ExpiresAt":"` + time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano) + `"}}`)
 	if _, err := db.ExecContext(ctx, "INSERT INTO oauth_refresh_grants(digest,family_id,generation,payload) VALUES(?,?,?,?)", []byte("test-digest"), "family-1", 0, payload); err != nil {
 		t.Fatal(err)
 	}
@@ -82,6 +83,45 @@ func TestUnverifiedClientWithLiveRefreshFamilyIsNotEvicted(t *testing.T) {
 	}
 	if err := store.RegisterClient(ctx, lifecycleClient(t, "client-new", time.Now().UTC()), policy); !errors.Is(err, oauthserver.ErrCapacity) {
 		t.Fatalf("live refresh family client eviction error = %v", err)
+	}
+}
+
+func TestUnverifiedClientWithLiveConsentOrCodeIsNotEvicted(t *testing.T) {
+	for name, state := range map[string]struct {
+		insert  string
+		payload string
+	}{
+		"consent": {"INSERT INTO oauth_consents(digest,payload) VALUES(?,?)", `{"session":{"Client":{"ID":"client-old"},"ExpiresAt":"%s"},"principal":""}`},
+		"code":    {"INSERT INTO oauth_codes(digest,payload) VALUES(?,?)", `{"record":{"ClientID":"client-old","ExpiresAt":"%s"},"principal":""}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			path := filepath.Join(t.TempDir(), "oauth.db")
+			store, err := sqlitestore.Open[struct{}](ctx, path, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = store.Close() }()
+			policy := lifecyclePolicy(t)
+			old := lifecycleClient(t, "client-old", time.Now().UTC().Add(-2*time.Hour))
+			if err := store.RegisterClient(ctx, old, policy); err != nil {
+				t.Fatal(err)
+			}
+			db, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			payload := []byte(fmt.Sprintf(state.payload, time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano)))
+			if _, err := db.ExecContext(ctx, state.insert, []byte("test-digest"), payload); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.RegisterClient(ctx, lifecycleClient(t, "client-new", time.Now().UTC()), policy); !errors.Is(err, oauthserver.ErrCapacity) {
+				t.Fatalf("live %s client eviction error = %v", name, err)
+			}
+		})
 	}
 }
 

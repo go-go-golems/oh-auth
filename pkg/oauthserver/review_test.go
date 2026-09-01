@@ -16,6 +16,11 @@ func TestConfigRejectsUnusableOperationalLimits(t *testing.T) {
 		t.Fatal("zero refresh capacity accepted")
 	}
 	config = oauthserver.DefaultConfig("https://auth.example.test", []oauthserver.ResourceConfig{{ID: "https://resource.example.test/api", DisplayName: "resource", SupportedScopes: []string{"read"}}}, scopes)
+	config.StatePolicy.Capacity.MaxRefreshGenerations = 0
+	if err := config.Validate(); err == nil {
+		t.Fatal("zero refresh generation bound accepted")
+	}
+	config = oauthserver.DefaultConfig("https://auth.example.test", []oauthserver.ResourceConfig{{ID: "https://resource.example.test/api", DisplayName: "resource", SupportedScopes: []string{"read"}}}, scopes)
 	config.StatePolicy.Registration.MaxRedirectURIs = 0
 	if err := config.Validate(); err == nil {
 		t.Fatal("zero redirect capacity accepted")

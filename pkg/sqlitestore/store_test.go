@@ -24,7 +24,7 @@ func TestStoreTransitionsAndDigestOnlyState(t *testing.T) {
 	now := time.Now().UTC()
 	scopes, _ := oauthserver.NewScopeSet("read")
 	client := oauthserver.Client{ID: "client-1", DisplayName: "client", Trust: oauthserver.ClientTrustUnverified, RedirectURIs: []oauthserver.RedirectURI{"https://client.example.test/callback"}, AllowedScopes: scopes, CreatedAt: now, LastUsedAt: now}
-	policy := oauthserver.StatePolicy{Registration: oauthserver.RegistrationPolicy{MaxClients: 4}, Capacity: oauthserver.StateCapacity{MaxAuthorizations: 4, MaxConsents: 4, MaxCodes: 4, MaxRefreshGrants: 4}}
+	policy := oauthserver.StatePolicy{Registration: oauthserver.RegistrationPolicy{MaxClients: 4}, Capacity: oauthserver.StateCapacity{MaxAuthorizations: 4, MaxConsents: 4, MaxCodes: 4, MaxRefreshGrants: 1, MaxRefreshGenerations: 10}}
 	if err := store.RegisterClient(ctx, client, policy); err != nil {
 		t.Fatal(err)
 	}
@@ -98,6 +98,14 @@ func TestStoreTransitionsAndDigestOnlyState(t *testing.T) {
 	}
 	if err := store.CommitRefreshRotation(ctx, oauthserver.RefreshRotation[struct{}]{CurrentDigest: grant.Digest, FamilyID: family, Generation: 0, Successor: next}, policy); err != nil {
 		t.Fatal(err)
+	}
+	boundedPolicy := policy
+	boundedPolicy.Capacity.MaxRefreshGenerations = 2
+	boundedNext := next
+	boundedNext.Digest = oauthserver.DigestCredential("refresh-bounded-000000000000000000000000000")
+	boundedNext.Generation = 2
+	if err := store.CommitRefreshRotation(ctx, oauthserver.RefreshRotation[struct{}]{CurrentDigest: next.Digest, FamilyID: family, Generation: 1, Successor: boundedNext}, boundedPolicy); !errors.Is(err, oauthserver.ErrRevoked) {
+		t.Fatalf("refresh generation bound error = %v", err)
 	}
 	if err := store.CommitRefreshRotation(ctx, oauthserver.RefreshRotation[struct{}]{CurrentDigest: grant.Digest, FamilyID: family, Generation: 0, Successor: next}, policy); err == nil {
 		t.Fatal("refresh replay accepted")

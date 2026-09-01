@@ -40,10 +40,11 @@ type RegistrationPolicy struct {
 }
 
 type StateCapacity struct {
-	MaxAuthorizations int
-	MaxConsents       int
-	MaxCodes          int
-	MaxRefreshGrants  int
+	MaxAuthorizations     int
+	MaxConsents           int
+	MaxCodes              int
+	MaxRefreshGrants      int
+	MaxRefreshGenerations uint64
 }
 
 type HTTPPolicy struct {
@@ -64,7 +65,7 @@ func DefaultConfig(issuer string, resources []ResourceConfig, scopes ScopeSet) C
 		CodeTTL:         time.Minute,
 		StatePolicy: StatePolicy{
 			Registration: RegistrationPolicy{MaxClients: 256, MaxRedirectURIs: 16, MaxDisplayName: 128, MaxScopeCount: 64, MaxRedirectBytes: 2048, UnverifiedClientTTL: 24 * time.Hour},
-			Capacity:     StateCapacity{MaxAuthorizations: 1024, MaxConsents: 1024, MaxCodes: 1024, MaxRefreshGrants: 4096},
+			Capacity:     StateCapacity{MaxAuthorizations: 1024, MaxConsents: 1024, MaxCodes: 1024, MaxRefreshGrants: 4096, MaxRefreshGenerations: 16384},
 		},
 		HTTP: HTTPPolicy{MaxBodyBytes: 1 << 20, MaxFieldBytes: 4096, MaxArrayLength: 64},
 	}
@@ -94,7 +95,7 @@ func (c Config) Validate() error {
 	}
 	registration := c.StatePolicy.Registration
 	capacity := c.StatePolicy.Capacity
-	if registration.MaxClients <= 0 || registration.MaxRedirectURIs <= 0 || registration.MaxDisplayName <= 0 || registration.MaxScopeCount <= 0 || registration.MaxRedirectBytes <= 0 || registration.UnverifiedClientTTL <= 0 || capacity.MaxAuthorizations <= 0 || capacity.MaxConsents <= 0 || capacity.MaxCodes <= 0 || capacity.MaxRefreshGrants <= 0 || c.HTTP.MaxBodyBytes <= 0 || c.HTTP.MaxFieldBytes <= 0 || c.HTTP.MaxArrayLength <= 0 {
+	if registration.MaxClients <= 0 || registration.MaxRedirectURIs <= 0 || registration.MaxDisplayName <= 0 || registration.MaxScopeCount <= 0 || registration.MaxRedirectBytes <= 0 || registration.UnverifiedClientTTL <= 0 || capacity.MaxAuthorizations <= 0 || capacity.MaxConsents <= 0 || capacity.MaxCodes <= 0 || capacity.MaxRefreshGrants <= 0 || capacity.MaxRefreshGenerations == 0 || c.HTTP.MaxBodyBytes <= 0 || c.HTTP.MaxFieldBytes <= 0 || c.HTTP.MaxArrayLength <= 0 {
 		return invalidValue("state policy")
 	}
 	return nil

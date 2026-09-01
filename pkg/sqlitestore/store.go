@@ -71,9 +71,12 @@ CREATE TABLE IF NOT EXISTS oauth_consents (digest BLOB PRIMARY KEY, payload BLOB
 CREATE TABLE IF NOT EXISTS oauth_codes (digest BLOB PRIMARY KEY, payload BLOB NOT NULL, consumed_at TEXT);
 CREATE TABLE IF NOT EXISTS oauth_refresh_grants (digest BLOB PRIMARY KEY, family_id TEXT NOT NULL, generation INTEGER NOT NULL, payload BLOB NOT NULL, consumed_at TEXT, revoked_at TEXT);
 CREATE INDEX IF NOT EXISTS oauth_refresh_family_idx ON oauth_refresh_grants(family_id);
-CREATE INDEX IF NOT EXISTS oauth_authorizations_expiry_idx ON oauth_authorizations(json_extract(payload, '$.ExpiresAt'));
-CREATE INDEX IF NOT EXISTS oauth_consents_expiry_idx ON oauth_consents(json_extract(payload, '$.ExpiresAt'));
-CREATE INDEX IF NOT EXISTS oauth_codes_expiry_idx ON oauth_codes(json_extract(payload, '$.ExpiresAt'));
+DROP INDEX IF EXISTS oauth_authorizations_expiry_idx;
+DROP INDEX IF EXISTS oauth_consents_expiry_idx;
+DROP INDEX IF EXISTS oauth_codes_expiry_idx;
+CREATE INDEX oauth_authorizations_expiry_idx ON oauth_authorizations(json_extract(payload, '$.ExpiresAt'));
+CREATE INDEX oauth_consents_expiry_idx ON oauth_consents(json_extract(payload, '$.session.ExpiresAt'));
+CREATE INDEX oauth_codes_expiry_idx ON oauth_codes(json_extract(payload, '$.record.ExpiresAt'));
 `)
 	if err != nil {
 		return fmt.Errorf("migrate sqlite: %w", err)
@@ -397,11 +400,11 @@ func (s *Store[A]) CommitCodeExchange(ctx context.Context, commit oauthserver.Co
 	if err := oauthserver.ValidateCodeExchangeCommit(storedCode.Record, commit, now); err != nil {
 		return err
 	}
-	var count int
-	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM oauth_refresh_grants").Scan(&count); err != nil {
+	var activeFamilies int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM oauth_refresh_grants WHERE consumed_at IS NULL AND revoked_at IS NULL").Scan(&activeFamilies); err != nil {
 		return err
 	}
-	if count >= policy.Capacity.MaxRefreshGrants {
+	if activeFamilies >= policy.Capacity.MaxRefreshGrants {
 		return oauthserver.ErrCapacity
 	}
 	encodedPrincipal, err := encodePrincipal(s.codec, commit.Refresh.Principal)
@@ -496,12 +499,14 @@ func (s *Store[A]) CommitRefreshRotation(ctx context.Context, rotation oauthserv
 	if err := oauthserver.ValidateRefreshRotation(current, rotation, now); err != nil {
 		return err
 	}
-	var count int
-	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM oauth_refresh_grants").Scan(&count); err != nil {
-		return err
-	}
-	if count >= policy.Capacity.MaxRefreshGrants {
-		return oauthserver.ErrCapacity
+	if rotation.Successor.Generation >= policy.Capacity.MaxRefreshGenerations {
+		if err := revokeFamilyTx(ctx, tx, rotation.FamilyID, now); err != nil {
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		return oauthserver.ErrRevoked
 	}
 	principal, err := encodePrincipal(s.codec, rotation.Successor.Principal)
 	if err != nil {
@@ -560,8 +565,8 @@ func pruneTx(ctx context.Context, tx *sql.Tx, _ oauthserver.StatePolicy, now tim
 		target *int
 	}{
 		{"DELETE FROM oauth_authorizations WHERE json_extract(payload, '$.ExpiresAt') <= ?", &stats.Authorizations},
-		{"DELETE FROM oauth_consents WHERE json_extract(payload, '$.ExpiresAt') <= ?", &stats.Consents},
-		{"DELETE FROM oauth_codes WHERE json_extract(payload, '$.ExpiresAt') <= ?", &stats.Codes},
+		{"DELETE FROM oauth_consents WHERE json_extract(payload, '$.session.ExpiresAt') <= ?", &stats.Consents},
+		{"DELETE FROM oauth_codes WHERE json_extract(payload, '$.record.ExpiresAt') <= ?", &stats.Codes},
 	} {
 		result, err := tx.ExecContext(ctx, item.query, cutoff)
 		if err != nil {
@@ -577,7 +582,7 @@ func pruneTx(ctx context.Context, tx *sql.Tx, _ oauthserver.StatePolicy, now tim
 WHERE family_id IN (
   SELECT family_id FROM oauth_refresh_grants
   GROUP BY family_id
-  HAVING MAX(json_extract(payload, '$.ExpiresAt')) <= ?
+  HAVING MAX(json_extract(payload, '$.grant.ExpiresAt')) <= ?
 )`, cutoff)
 	if err != nil {
 		return stats, err
@@ -599,10 +604,18 @@ WHERE last_used_at <= ?
     FROM oauth_authorizations
     WHERE consumed_at IS NULL AND json_extract(payload, '$.ExpiresAt') > ?
     UNION
-    SELECT json_extract(payload, '$.ClientID')
+    SELECT json_extract(payload, '$.session.Client.ID')
+    FROM oauth_consents
+    WHERE consumed_at IS NULL AND json_extract(payload, '$.session.ExpiresAt') > ?
+    UNION
+    SELECT json_extract(payload, '$.record.ClientID')
+    FROM oauth_codes
+    WHERE consumed_at IS NULL AND json_extract(payload, '$.record.ExpiresAt') > ?
+    UNION
+    SELECT json_extract(payload, '$.grant.ClientID')
     FROM oauth_refresh_grants
-    WHERE revoked_at IS NULL AND json_extract(payload, '$.ExpiresAt') > ?
-  )`, cutoff, oauthserver.ClientTrustUnverified, now.UTC().Format(time.RFC3339Nano), now.UTC().Format(time.RFC3339Nano))
+    WHERE revoked_at IS NULL AND json_extract(payload, '$.grant.ExpiresAt') > ?
+  )`, cutoff, oauthserver.ClientTrustUnverified, now.UTC().Format(time.RFC3339Nano), now.UTC().Format(time.RFC3339Nano), now.UTC().Format(time.RFC3339Nano), now.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return 0, err
 	}
