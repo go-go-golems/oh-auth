@@ -1776,3 +1776,74 @@ The validation sweep also repaired go-go-mcp's stale module baseline. Its declar
 - go-go-mcp phase commit: `03360e4eb25ea0409ff19c602fca594c33cc9405`.
 - CoinVault phase commit: `25c3723`.
 - No deployed smoke was added or executed.
+
+## Step 23: Open focused release pull requests and publish the handoff
+
+This phase pushed every repository cleanly, opened focused pull requests for the post-v0.0.4 OH Auth API and the hard-cut go-go-mcp integration, and refreshed the final ticket review bundle. CoinVault PR #13 already carries the matching consumer commits.
+
+The implementation work is complete through deterministic integration. Tagged releases and the single deployed acceptance smoke remain ordered release operations: merge the library and MCP pull requests, tag them, replace CoinVault pseudo-versions, deploy all three processes, then run the one smoke.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 18)
+
+**Assistant interpretation:** Finish the continuation with auditable PR and documentation handoff rather than running an unapproved deployment smoke.
+
+**Inferred user intent:** Leave the multi-repository work mergeable, reproducible, and ready for controlled release.
+
+### What I did
+
+- Opened oh-auth PR #4 for verification-only JWT and scope membership correctness.
+- Opened go-go-mcp PR #83 for the official SDK/auth verifier hard cut and dependency baseline.
+- Confirmed CoinVault PR #13 contains the v0.0.4 adoption, MCP boundary cutover, and RAG consumer.
+- Validated clean repository states and exact pushed heads.
+- Ran docmgr doctor and updated the ticket index, task state, diary, changelog, and related evidence.
+- Refreshed the reMarkable ticket bundle with design, senior review, diary, and evidence manifest.
+- Printed the P5 start and completion slips.
+
+### Why
+
+- The new resource verifier and hard-cut MCP API need releases before CoinVault can stop using development pseudo-versions.
+- Deployment remains controlled by protected publication infrastructure and is not a local code-completion step.
+
+### What worked
+
+- PRs were created at `https://github.com/go-go-golems/oh-auth/pull/4` and `https://github.com/go-go-golems/go-go-mcp/pull/83`.
+- All local deterministic gates were green at the pushed heads.
+- The final bundle rendered and uploaded to `/ai/2026/09/01/OH-AUTH-001`.
+
+### What didn't work
+
+- N/A.
+
+### What I learned
+
+- The release sequence now has two dependency levels: OH Auth and go-go-mcp must be tagged before CoinVault can replace exact pseudo-versions and become a final deployment candidate.
+
+### What was tricky to build
+
+- go-go-mcp PR #83 contains the official SDK and session/auth foundation that preceded the verifier hard cut; splitting only the last two commits would omit the boundary CoinVault already consumes. The PR therefore presents the coherent branch rather than manufacturing a compatibility branch.
+
+### What warrants a second pair of eyes
+
+- Review OH Auth PR #4's verification-only key contract and `ScopeSet.Contains` fix.
+- Review go-go-mcp PR #83 as a breaking API/official SDK transition, not a patch-compatible update.
+- Review CoinVault PR #13 deployment flags for distinct MCP/RAG resource URLs and public verification-key distribution.
+
+### What should be done in the future
+
+- Merge and release OH Auth and go-go-mcp.
+- Pin CoinVault to those tags and rerun its complete gate.
+- Deploy authorization server, MCP, and RAG; run the single final smoke; then check the remaining combined acceptance task.
+
+### Code review instructions
+
+- Review PRs in dependency order: OH Auth #4, go-go-mcp #83, CoinVault #13.
+- Do not request another broad automated OH Auth review; use the named deterministic contracts and focused human review.
+
+### Technical details
+
+- OH Auth head: `abc1a63b77a43519cababa101fb24d0415ba370f`.
+- go-go-mcp head: `03360e4eb25ea0409ff19c602fca594c33cc9405`.
+- CoinVault head: `25c3723a056138b9a2582f0829101d1cfefaa5ae`.
+- Final smoke remains intentionally unexecuted.

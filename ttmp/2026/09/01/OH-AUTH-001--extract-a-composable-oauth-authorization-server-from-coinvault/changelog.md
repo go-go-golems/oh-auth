@@ -198,3 +198,13 @@ Steps 21-22: Added verification-only JWT construction, independent OAuth-protect
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../coinvault/internal/ragapi/server.go — Protected search API and claim-derived policy
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../coinvault/internal/ragresource/server.go — Exact-audience RAG middleware
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/jwttokens/service.go — Verification-only resource-server adapter
+
+## 2026-09-01
+
+Step 23: Opened oh-auth PR #4 and go-go-mcp PR #83, confirmed CoinVault PR #13 consumer heads, and prepared the final release/smoke handoff.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../coinvault/internal/ragapi/server.go — CoinVault PR 13 independent RAG consumer
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../go-go-mcp/pkg/embeddable/auth_provider.go — go-go-mcp PR 83 hard-cut verifier boundary
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/jwttokens/service.go — OH Auth PR 4 release boundary
