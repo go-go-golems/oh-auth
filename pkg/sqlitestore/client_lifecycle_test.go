@@ -2,6 +2,7 @@ package sqlitestore_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -51,6 +52,36 @@ func TestUnverifiedClientWithLiveAuthorizationIsNotEvicted(t *testing.T) {
 	}
 	if err := store.RegisterClient(ctx, lifecycleClient(t, "client-new", time.Now().UTC()), policy); !errors.Is(err, oauthserver.ErrCapacity) {
 		t.Fatalf("live authorization client eviction error = %v", err)
+	}
+}
+
+func TestUnverifiedClientWithLiveRefreshFamilyIsNotEvicted(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "oauth.db")
+	store, err := sqlitestore.Open[struct{}](ctx, path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+
+	policy := lifecyclePolicy(t)
+	old := lifecycleClient(t, "client-old", time.Now().UTC().Add(-2*time.Hour))
+	if err := store.RegisterClient(ctx, old, policy); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte(`{"ClientID":"client-old","ExpiresAt":"` + time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano) + `"}`)
+	if _, err := db.ExecContext(ctx, "INSERT INTO oauth_refresh_grants(digest,family_id,generation,payload) VALUES(?,?,?,?)", []byte("test-digest"), "family-1", 0, payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RegisterClient(ctx, lifecycleClient(t, "client-new", time.Now().UTC()), policy); !errors.Is(err, oauthserver.ErrCapacity) {
+		t.Fatalf("live refresh family client eviction error = %v", err)
 	}
 }
 

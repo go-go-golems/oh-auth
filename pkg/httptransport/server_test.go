@@ -65,8 +65,14 @@ func TestServerMetadataRegistrationAndBoundaries(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &metadata); err != nil {
 		t.Fatal(err)
 	}
-	if metadata["issuer"] != "https://auth.example.test" || metadata["authorization_endpoint"] != "https://auth.example.test/oauth/authorize" {
+	methods, _ := metadata["token_endpoint_auth_methods_supported"].([]any)
+	if metadata["issuer"] != "https://auth.example.test" || metadata["authorization_endpoint"] != "https://auth.example.test/oauth/authorize" || len(methods) != 1 || methods[0] != "none" {
 		t.Fatalf("metadata: %+v", metadata)
+	}
+	openid := httptest.NewRecorder()
+	mux.ServeHTTP(openid, httptest.NewRequest(http.MethodGet, "https://auth.example.test/.well-known/openid-configuration", nil))
+	if openid.Code != http.StatusNotFound {
+		t.Fatalf("unsupported OpenID discovery status = %d", openid.Code)
 	}
 
 	bad := httptest.NewRequest(http.MethodPost, "https://auth.example.test/.well-known/oauth-authorization-server", nil)

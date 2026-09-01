@@ -35,7 +35,7 @@ func (s *Store[A]) RegisterClient(_ context.Context, client oauthserver.Client, 
 	defer s.mu.Unlock()
 	now := s.clock.Now().UTC()
 	for id, existing := range s.clients {
-		if existing.Trust == oauthserver.ClientTrustUnverified && !existing.LastUsedAt.After(now.Add(-policy.Registration.UnverifiedClientTTL)) && !s.clientHasLiveAuthorizationLocked(id, now) {
+		if existing.Trust == oauthserver.ClientTrustUnverified && !existing.LastUsedAt.After(now.Add(-policy.Registration.UnverifiedClientTTL)) && !s.clientHasLiveStateLocked(id, now) {
 			delete(s.clients, id)
 		}
 	}
@@ -272,9 +272,14 @@ func (s *Store[A]) pruneExpiredLocked(now time.Time) oauthserver.PruneStats {
 	}
 	return stats
 }
-func (s *Store[A]) clientHasLiveAuthorizationLocked(id oauthserver.ClientID, now time.Time) bool {
+func (s *Store[A]) clientHasLiveStateLocked(id oauthserver.ClientID, now time.Time) bool {
 	for _, state := range s.authorizers {
 		if state.ClientID == id && state.ConsumedAt.IsZero() && state.ExpiresAt.After(now) {
+			return true
+		}
+	}
+	for _, grant := range s.refresh {
+		if grant.ClientID == id && grant.RevokedAt.IsZero() && grant.ExpiresAt.After(now) {
 			return true
 		}
 	}

@@ -598,7 +598,11 @@ WHERE last_used_at <= ?
     SELECT json_extract(payload, '$.ClientID')
     FROM oauth_authorizations
     WHERE consumed_at IS NULL AND json_extract(payload, '$.ExpiresAt') > ?
-  )`, cutoff, oauthserver.ClientTrustUnverified, now.UTC().Format(time.RFC3339Nano))
+    UNION
+    SELECT json_extract(payload, '$.ClientID')
+    FROM oauth_refresh_grants
+    WHERE revoked_at IS NULL AND json_extract(payload, '$.ExpiresAt') > ?
+  )`, cutoff, oauthserver.ClientTrustUnverified, now.UTC().Format(time.RFC3339Nano), now.UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		return 0, err
 	}

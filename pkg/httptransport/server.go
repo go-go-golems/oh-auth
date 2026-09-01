@@ -41,7 +41,6 @@ func New[A any](config Config[A]) (*Server[A], error) {
 
 func (s *Server[A]) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("/.well-known/oauth-authorization-server", s.metadata)
-	mux.HandleFunc("/.well-known/openid-configuration", s.metadata)
 	mux.HandleFunc("/jwks.json", s.jwks)
 	mux.HandleFunc("/oauth/register", s.register)
 	mux.HandleFunc("/oauth/authorize", s.authorize)
@@ -60,6 +59,7 @@ type authorizationMetadata struct {
 	ResponseTypes         []string `json:"response_types_supported"`
 	GrantTypes            []string `json:"grant_types_supported"`
 	CodeChallengeMethods  []string `json:"code_challenge_methods_supported"`
+	TokenAuthMethods      []string `json:"token_endpoint_auth_methods_supported"`
 	ScopesSupported       []string `json:"scopes_supported,omitempty"`
 }
 
@@ -78,7 +78,7 @@ func (s *Server[A]) metadata(w http.ResponseWriter, r *http.Request) {
 	for _, resource := range resources {
 		scopes = append(scopes, oauthresource.Scopes(resource.SupportedScopes)...)
 	}
-	s.writeJSON(w, http.StatusOK, authorizationMetadata{Issuer: s.issuer, AuthorizationEndpoint: s.absolute("/oauth/authorize"), TokenEndpoint: s.absolute("/oauth/token"), RegistrationEndpoint: s.absolute("/oauth/register"), RevocationEndpoint: s.absolute("/oauth/revoke"), JWKSURI: s.absolute("/jwks.json"), ResponseTypes: []string{"code"}, GrantTypes: []string{"authorization_code", "refresh_token"}, CodeChallengeMethods: []string{"S256"}, ScopesSupported: scopes})
+	s.writeJSON(w, http.StatusOK, authorizationMetadata{Issuer: s.issuer, AuthorizationEndpoint: s.absolute("/oauth/authorize"), TokenEndpoint: s.absolute("/oauth/token"), RegistrationEndpoint: s.absolute("/oauth/register"), RevocationEndpoint: s.absolute("/oauth/revoke"), JWKSURI: s.absolute("/jwks.json"), ResponseTypes: []string{"code"}, GrantTypes: []string{"authorization_code", "refresh_token"}, CodeChallengeMethods: []string{"S256"}, TokenAuthMethods: []string{"none"}, ScopesSupported: scopes})
 }
 func (s *Server[A]) jwks(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
