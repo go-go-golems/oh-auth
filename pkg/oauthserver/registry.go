@@ -46,4 +46,25 @@ func (r *StaticResourceRegistry) ListResources(_ context.Context) ([]Resource, e
 	return result, nil
 }
 
+func validateResourceRegistry(ctx context.Context, configs []ResourceConfig, supported ScopeSet, registry ResourceRegistry) error {
+	expected, err := NewStaticResourceRegistry(configs, supported)
+	if err != nil {
+		return err
+	}
+	actual, err := registry.ListResources(ctx)
+	if err != nil {
+		return err
+	}
+	if len(actual) != len(expected.resources) {
+		return invalidValue("resource registry")
+	}
+	for _, resource := range actual {
+		want, ok := expected.resources[resource.ID]
+		if !ok || want.DisplayName != resource.DisplayName || want.SupportedScopes.String() != resource.SupportedScopes.String() {
+			return invalidValue("resource registry")
+		}
+	}
+	return nil
+}
+
 var _ ResourceRegistry = (*StaticResourceRegistry)(nil)

@@ -48,7 +48,6 @@ func (s *Secrets) NewRefreshToken() (oauthserver.RefreshToken, error) {
 func (s *Secrets) NewRefreshFamilyID() (oauthserver.RefreshFamilyID, error) {
 	return oauthserver.NewRefreshFamilyID(s.value("family"))
 }
-func (s *Secrets) NewTokenID() (string, error) { return s.value("jti"), nil }
 
 type ScopePolicy[A any] struct{ Available oauthserver.ScopeSet }
 
@@ -70,6 +69,7 @@ type TokenService[A any] struct {
 	next   uint64
 }
 
+func (t *TokenService[A]) TokenIssuer() string { return t.Issuer }
 func (t *TokenService[A]) IssueAccessToken(_ context.Context, grant oauthserver.AccessGrant[A]) (oauthserver.IssuedAccessToken, error) {
 	t.next++
 	return oauthserver.IssuedAccessToken{Value: fmt.Sprintf("access-%d", t.next), TokenType: "Bearer", ExpiresAt: grant.ExpiresAt}, nil

@@ -12,6 +12,12 @@ import (
 	"github.com/go-go-golems/oh-auth/pkg/oauthserver"
 )
 
+type auditRecorder struct{ operations []string }
+
+func (r *auditRecorder) Record(_ context.Context, event oauthserver.AuditEvent) {
+	r.operations = append(r.operations, event.Operation+":"+event.Outcome)
+}
+
 func TestScopeSetCanonicalAndImmutable(t *testing.T) {
 	set, err := oauthserver.NewScopeSet("read", "write", "read")
 	if err != nil {
@@ -61,7 +67,8 @@ func TestEngineOAuthLifecycle(t *testing.T) {
 	}
 	principal := oauthserver.Principal[struct{}]{Subject: oauthserver.Subject("employee-1"), DisplayName: "Employee", Email: "employee@example.test"}
 	revalidator := &memorytest.Revalidator[struct{}]{Result: oauthserver.Revalidation[struct{}]{Status: oauthserver.RevalidationEligible, Principal: principal}}
-	engine, err := oauthserver.New(config, oauthserver.Dependencies[struct{}]{Store: store, Resources: resources, Scopes: memorytest.ScopePolicy[struct{}]{Available: scopes}, Revalidator: revalidator, Tokens: &memorytest.TokenService[struct{}]{Issuer: config.Issuer}, Secrets: secrets, Clock: clock})
+	audit := &auditRecorder{}
+	engine, err := oauthserver.New(config, oauthserver.Dependencies[struct{}]{Store: store, Resources: resources, Scopes: memorytest.ScopePolicy[struct{}]{Available: scopes}, Revalidator: revalidator, Tokens: &memorytest.TokenService[struct{}]{Issuer: config.Issuer}, Secrets: secrets, Clock: clock, Audit: audit})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,5 +133,17 @@ func TestEngineOAuthLifecycle(t *testing.T) {
 	}
 	if _, err := engine.Refresh(ctx, oauthserver.RefreshInput{RefreshToken: refreshed.RefreshToken, ClientID: string(registered.Client.ID)}); err == nil {
 		t.Fatal("revoked grant refreshed")
+	}
+	for _, expected := range []string{"register_client:success", "begin_authorization:success", "complete_login:success", "decide_consent:approved", "exchange_code:success", "refresh:success", "revoke:success"} {
+		found := false
+		for _, operation := range audit.operations {
+			if operation == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("missing audit event %q in %v", expected, audit.operations)
+		}
 	}
 }

@@ -13,7 +13,6 @@ type SecretSource interface {
 	NewAuthorizationCode() (AuthorizationCode, error)
 	NewRefreshToken() (RefreshToken, error)
 	NewRefreshFamilyID() (RefreshFamilyID, error)
-	NewTokenID() (string, error)
 }
 
 type ScopePolicy[A any] interface {
@@ -129,6 +128,7 @@ type ClaimProvider[A any] interface {
 }
 
 type TokenService[A any] interface {
+	TokenIssuer() string
 	IssueAccessToken(context.Context, AccessGrant[A]) (IssuedAccessToken, error)
 	VerifyAccessToken(context.Context, string, ResourceID) (VerifiedAccessToken, error)
 	JWKS(context.Context) (JWKS, error)

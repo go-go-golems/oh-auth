@@ -37,7 +37,7 @@ func TestRedirectURIQueryAndIPv6LoopbackAreSupported(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := oauthserver.New(config, oauthserver.Dependencies[struct{}]{Store: memorytest.NewStore[struct{}](), Resources: resources, Scopes: memorytest.ScopePolicy[struct{}]{Available: scopes}, Revalidator: memorytest.Revalidator[struct{}]{Result: oauthserver.Revalidation[struct{}]{Status: oauthserver.RevalidationEligible, Principal: oauthserver.Principal[struct{}]{Subject: "employee-1"}}}, Tokens: &memorytest.TokenService[struct{}]{}, Secrets: &memorytest.Secrets{}, Clock: memorytest.NewClock(time.Now().UTC())})
+	engine, err := oauthserver.New(config, oauthserver.Dependencies[struct{}]{Store: memorytest.NewStore[struct{}](), Resources: resources, Scopes: memorytest.ScopePolicy[struct{}]{Available: scopes}, Revalidator: memorytest.Revalidator[struct{}]{Result: oauthserver.Revalidation[struct{}]{Status: oauthserver.RevalidationEligible, Principal: oauthserver.Principal[struct{}]{Subject: "employee-1"}}}, Tokens: &memorytest.TokenService[struct{}]{Issuer: config.Issuer}, Secrets: &memorytest.Secrets{}, Clock: memorytest.NewClock(time.Now().UTC())})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -23,23 +23,27 @@ func (loginStarter) AuthorizationURL(_ context.Context, login oauthserver.LoginC
 
 func newServer(t *testing.T, policies ...oauthserver.HTTPPolicy) (*httptransport.Server[struct{}], *memorytest.Store[struct{}]) {
 	t.Helper()
+	return newServerWithLogin(t, loginStarter{}, policies...)
+}
+
+func newServerWithLogin(t *testing.T, login oauthserver.LoginStarter, policies ...oauthserver.HTTPPolicy) (*httptransport.Server[struct{}], *memorytest.Store[struct{}]) {
+	t.Helper()
 	scopes, _ := oauthserver.NewScopeSet("read")
 	config := oauthserver.DefaultConfig("https://auth.example.test", []oauthserver.ResourceConfig{{ID: "https://mcp.example.test/mcp", DisplayName: "MCP", SupportedScopes: []string{"read"}}}, scopes)
+	if len(policies) > 0 {
+		config.HTTP = policies[0]
+	}
 	clock := memorytest.NewClock(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC))
 	store := memorytest.NewStoreWithClock[struct{}](clock)
 	resources, err := oauthserver.NewStaticResourceRegistry(config.Resources, config.SupportedScopes)
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine, err := oauthserver.New(config, oauthserver.Dependencies[struct{}]{Store: store, Resources: resources, Scopes: memorytest.ScopePolicy[struct{}]{Available: scopes}, Revalidator: memorytest.Revalidator[struct{}]{Result: oauthserver.Revalidation[struct{}]{Status: oauthserver.RevalidationEligible, Principal: oauthserver.Principal[struct{}]{Subject: "employee-1", DisplayName: "Employee", Email: "employee@example.test"}}}, Tokens: &memorytest.TokenService[struct{}]{}, Secrets: &memorytest.Secrets{}, Clock: clock})
+	engine, err := oauthserver.New(config, oauthserver.Dependencies[struct{}]{Store: store, Resources: resources, Scopes: memorytest.ScopePolicy[struct{}]{Available: scopes}, Revalidator: memorytest.Revalidator[struct{}]{Result: oauthserver.Revalidation[struct{}]{Status: oauthserver.RevalidationEligible, Principal: oauthserver.Principal[struct{}]{Subject: "employee-1", DisplayName: "Employee", Email: "employee@example.test"}}}, Tokens: &memorytest.TokenService[struct{}]{Issuer: config.Issuer}, Secrets: &memorytest.Secrets{}, Clock: clock})
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy := config.HTTP
-	if len(policies) > 0 {
-		policy = policies[0]
-	}
-	server, err := httptransport.New(httptransport.Config[struct{}]{Engine: engine, Issuer: config.Issuer, Resources: resources, Tokens: &memorytest.TokenService[struct{}]{}, Login: loginStarter{}, Policy: policy})
+	server, err := httptransport.New(httptransport.Config[struct{}]{Engine: engine, Login: login})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -56,6 +56,16 @@ func TestServiceIssuesAndVerifiesResourceBoundToken(t *testing.T) {
 	}
 }
 
+func TestServiceRejectsWeakRSAKey(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := jwttokens.New(jwttokens.Config[struct{}]{Issuer: "https://auth.example.test", ActiveKeyID: "weak", ActiveKey: key}); err == nil {
+		t.Fatal("weak RSA key accepted")
+	}
+}
+
 func TestServiceRejectsReservedClaimProvider(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {

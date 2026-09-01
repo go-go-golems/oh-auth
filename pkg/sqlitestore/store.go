@@ -78,6 +78,13 @@ CREATE INDEX IF NOT EXISTS oauth_codes_expiry_idx ON oauth_codes(json_extract(pa
 	if err != nil {
 		return fmt.Errorf("migrate sqlite: %w", err)
 	}
+	var count, minimum, maximum int
+	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*), COALESCE(MIN(version),0), COALESCE(MAX(version),0) FROM oauth_schema_version").Scan(&count, &minimum, &maximum); err != nil {
+		return fmt.Errorf("read sqlite schema version: %w", err)
+	}
+	if count != 1 || minimum != 1 || maximum != 1 {
+		return fmt.Errorf("unsupported sqlite schema version state: count=%d min=%d max=%d", count, minimum, maximum)
+	}
 	return nil
 }
 

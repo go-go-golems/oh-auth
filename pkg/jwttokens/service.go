@@ -40,12 +40,15 @@ func New[A any](config Config[A]) (*Service[A], error) {
 	if config.Issuer == "" || config.ActiveKeyID == "" || config.ActiveKey == nil {
 		return nil, errors.New("JWT configuration is incomplete")
 	}
+	if config.ActiveKey.N.BitLen() < 2048 || config.ActiveKey.Validate() != nil {
+		return nil, errors.New("active JWT key must be a valid RSA key of at least 2048 bits")
+	}
 	if config.TokenType == "" {
 		config.TokenType = "at+jwt"
 	}
 	verification := make(map[string]*rsa.PublicKey, len(config.Verification))
 	for kid, key := range config.Verification {
-		if kid == "" || key == nil {
+		if kid == "" || key == nil || key.N.BitLen() < 2048 || key.E < 3 {
 			return nil, errors.New("JWT verification key is invalid")
 		}
 		verification[kid] = key
@@ -59,6 +62,8 @@ func New[A any](config Config[A]) (*Service[A], error) {
 	}
 	return &Service[A]{issuer: config.Issuer, tokenType: config.TokenType, activeKey: config.ActiveKey, activeKeyID: config.ActiveKeyID, verification: verification, claims: config.Claims, clock: config.Clock}, nil
 }
+
+func (s *Service[A]) TokenIssuer() string { return s.issuer }
 
 func (s *Service[A]) IssueAccessToken(ctx context.Context, grant oauthserver.AccessGrant[A]) (oauthserver.IssuedAccessToken, error) {
 	if grant.Principal.Subject == "" || grant.ClientID == "" || grant.Resource == "" || grant.ExpiresAt.IsZero() || grant.IssuedAt.IsZero() {

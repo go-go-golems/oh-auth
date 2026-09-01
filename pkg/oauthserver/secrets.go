@@ -53,9 +53,6 @@ func (s CryptoSecrets) NewRefreshFamilyID() (RefreshFamilyID, error) {
 	value, err := s.opaque(func(value string) error { _, err := NewRefreshFamilyID(value); return err })
 	return RefreshFamilyID(value), err
 }
-func (s CryptoSecrets) NewTokenID() (string, error) {
-	return s.opaque(func(value string) error { return nil })
-}
 
 type NopAudit struct{}
 

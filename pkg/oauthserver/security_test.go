@@ -43,7 +43,7 @@ func newFaultEngine(t *testing.T, store oauthserver.Store[struct{}], revalidatio
 		Resources:   resources,
 		Scopes:      memorytest.ScopePolicy[struct{}]{Available: scopes},
 		Revalidator: memorytest.Revalidator[struct{}]{Result: revalidation},
-		Tokens:      &memorytest.TokenService[struct{}]{},
+		Tokens:      &memorytest.TokenService[struct{}]{Issuer: config.Issuer},
 		Secrets:     &memorytest.Secrets{},
 		Clock:       memorytest.NewClock(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)),
 	})
@@ -101,6 +101,32 @@ func TestRevokeDistinguishesUnknownTokenFromStoreFailure(t *testing.T) {
 	store.getErr = oauthserver.ErrNotFound
 	if err := engine.Revoke(t.Context(), oauthserver.RevokeInput{Token: "refresh-000000000000000000000000000000000000", ClientID: "client-1"}); err != nil {
 		t.Fatalf("unknown token was disclosed: %v", err)
+	}
+}
+
+func TestEngineRejectsMismatchedResourceRegistry(t *testing.T) {
+	scopes, _ := oauthserver.NewScopeSet("read")
+	config := oauthserver.DefaultConfig("https://auth.example.test", []oauthserver.ResourceConfig{{ID: "https://resource.example.test/api", DisplayName: "expected", SupportedScopes: []string{"read"}}}, scopes)
+	resources, err := oauthserver.NewStaticResourceRegistry([]oauthserver.ResourceConfig{{ID: "https://resource.example.test/api", DisplayName: "different", SupportedScopes: []string{"read"}}}, scopes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = oauthserver.New(config, oauthserver.Dependencies[struct{}]{Store: memorytest.NewStore[struct{}](), Resources: resources, Scopes: memorytest.ScopePolicy[struct{}]{Available: scopes}, Revalidator: memorytest.Revalidator[struct{}]{}, Tokens: &memorytest.TokenService[struct{}]{Issuer: config.Issuer}, Secrets: &memorytest.Secrets{}, Clock: oauthserver.SystemClock{}})
+	if err == nil {
+		t.Fatal("mismatched resource registry accepted")
+	}
+}
+
+func TestEngineRejectsMismatchedTokenIssuer(t *testing.T) {
+	scopes, _ := oauthserver.NewScopeSet("read")
+	config := oauthserver.DefaultConfig("https://auth.example.test", []oauthserver.ResourceConfig{{ID: "https://resource.example.test/api", DisplayName: "resource", SupportedScopes: []string{"read"}}}, scopes)
+	resources, err := oauthserver.NewStaticResourceRegistry(config.Resources, scopes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = oauthserver.New(config, oauthserver.Dependencies[struct{}]{Store: memorytest.NewStore[struct{}](), Resources: resources, Scopes: memorytest.ScopePolicy[struct{}]{Available: scopes}, Revalidator: memorytest.Revalidator[struct{}]{}, Tokens: &memorytest.TokenService[struct{}]{Issuer: "https://other.example.test"}, Secrets: &memorytest.Secrets{}, Clock: oauthserver.SystemClock{}})
+	if err == nil {
+		t.Fatal("mismatched token issuer accepted")
 	}
 }
 

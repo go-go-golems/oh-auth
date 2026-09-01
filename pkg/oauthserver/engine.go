@@ -30,11 +30,23 @@ func New[A any](config Config, deps Dependencies[A]) (*Engine[A], error) {
 	if deps.Store == nil || deps.Resources == nil || deps.Scopes == nil || deps.Revalidator == nil || deps.Tokens == nil || deps.Secrets == nil || deps.Clock == nil {
 		return nil, invalidValue("engine dependencies")
 	}
+	if deps.Tokens.TokenIssuer() != config.Issuer {
+		return nil, invalidValue("token issuer")
+	}
+	if err := validateResourceRegistry(context.Background(), config.Resources, config.SupportedScopes, deps.Resources); err != nil {
+		return nil, invalidValue("resource registry")
+	}
 	if deps.Audit == nil {
 		deps.Audit = NopAudit{}
 	}
 	return &Engine[A]{config: config, deps: deps}, nil
 }
+
+func (e *Engine[A]) Issuer() string              { return e.config.Issuer }
+func (e *Engine[A]) Resources() ResourceRegistry { return e.deps.Resources }
+func (e *Engine[A]) Tokens() TokenService[A]     { return e.deps.Tokens }
+func (e *Engine[A]) HTTPPolicy() HTTPPolicy      { return e.config.HTTP }
+func (e *Engine[A]) now() time.Time              { return e.deps.Clock.Now().UTC() }
 
 func (e *Engine[A]) RegisterClient(ctx context.Context, in RegisterClientInput) (RegisterClientResult, error) {
 	if len(in.DisplayName) == 0 || len(in.DisplayName) > e.config.StatePolicy.Registration.MaxDisplayName || len(in.RedirectURIs) == 0 || len(in.RedirectURIs) > e.config.StatePolicy.Registration.MaxRedirectURIs {
@@ -68,7 +80,7 @@ func (e *Engine[A]) RegisterClient(ctx context.Context, in RegisterClientInput) 
 	if err != nil {
 		return RegisterClientResult{}, oauthError(ErrorTemporary, "could not create client", 503, err)
 	}
-	now := e.deps.Clock.Now()
+	now := e.now()
 	client := Client{ID: clientID, DisplayName: in.DisplayName, Trust: ClientTrustUnverified, RedirectURIs: redirects, AllowedScopes: scopes, CreatedAt: now, LastUsedAt: now}
 	if err := e.deps.Store.RegisterClient(ctx, client, e.config.StatePolicy); err != nil {
 		return RegisterClientResult{}, mapStoreError(err, ErrorInvalidClientMetadata)
@@ -96,23 +108,23 @@ type BeginAuthorizationInput struct {
 	Resource        string
 }
 
-func (e *Engine[A]) ValidateRedirect(ctx context.Context, clientIDRaw, redirectRaw string) (RedirectURI, error) {
+func (e *Engine[A]) ValidateRedirect(ctx context.Context, clientIDRaw, redirectRaw string) (TrustedRedirect, error) {
 	clientID, err := NewClientID(clientIDRaw)
 	if err != nil {
-		return "", err
+		return TrustedRedirect{}, err
 	}
 	redirect, err := NewRedirectURI(redirectRaw)
 	if err != nil || !validRedirectURI(string(redirect), true) {
-		return "", ErrBinding
+		return TrustedRedirect{}, ErrBinding
 	}
 	client, err := e.deps.Store.GetClient(ctx, clientID)
 	if err != nil {
-		return "", err
+		return TrustedRedirect{}, err
 	}
 	if !containsRedirect(client.RedirectURIs, redirect) {
-		return "", ErrBinding
+		return TrustedRedirect{}, ErrBinding
 	}
-	return redirect, nil
+	return TrustedRedirect{uri: redirect}, nil
 }
 
 type BeginAuthorizationResult struct {
@@ -155,18 +167,19 @@ func (e *Engine[A]) BeginAuthorization(ctx context.Context, in BeginAuthorizatio
 	if !requested.IsSubsetOf(client.AllowedScopes) || !requested.IsSubsetOf(resource.SupportedScopes) || !requested.IsSubsetOf(e.config.SupportedScopes) {
 		return BeginAuthorizationResult{}, oauthError(ErrorInvalidScope, "requested scopes are not allowed", 400, ErrInvalid)
 	}
-	if err := e.deps.Store.TouchClient(ctx, client.ID, e.deps.Clock.Now()); err != nil {
+	if err := e.deps.Store.TouchClient(ctx, client.ID, e.now()); err != nil {
 		return BeginAuthorizationResult{}, mapStoreError(err, ErrorInvalidRequest)
 	}
 	token, err := e.deps.Secrets.NewTransactionToken()
 	if err != nil {
 		return BeginAuthorizationResult{}, oauthError(ErrorTemporary, "could not start authorization", 503, err)
 	}
-	now := e.deps.Clock.Now()
+	now := e.now()
 	authorization := AuthorizationTransaction{Token: token, ClientID: clientID, RedirectURI: redirect, State: in.State, PKCEChallenge: challenge, RequestedScopes: requested, Resource: resourceID, ExpiresAt: now.Add(e.config.TransactionTTL)}
 	if err := e.deps.Store.CreateAuthorization(ctx, authorization, e.config.StatePolicy); err != nil {
 		return BeginAuthorizationResult{}, mapStoreError(err, ErrorInvalidRequest)
 	}
+	e.audit(ctx, "begin_authorization", "success", Principal[A]{}, clientID, resourceID, requested, "")
 	return BeginAuthorizationResult{Transaction: token, LoginContext: LoginContext{Transaction: token, ClientID: clientID, RedirectURI: redirect, State: in.State}}, nil
 }
 
@@ -187,7 +200,7 @@ func (e *Engine[A]) CompleteLogin(ctx context.Context, in CompleteLoginInput[A])
 	if err != nil {
 		return CompleteLoginResult{}, invalidGrant(err)
 	}
-	if e.deps.Clock.Now().After(auth.ExpiresAt) {
+	if e.now().After(auth.ExpiresAt) {
 		return CompleteLoginResult{}, invalidGrant(ErrExpired)
 	}
 	client, err := e.deps.Store.GetClient(ctx, auth.ClientID)
@@ -207,10 +220,11 @@ func (e *Engine[A]) CompleteLogin(ctx context.Context, in CompleteLoginInput[A])
 	if err != nil {
 		return CompleteLoginResult{}, oauthError(ErrorTemporary, "could not create consent", 503, err)
 	}
-	consent := ConsentSession[A]{Token: consentToken, Client: snapshotClient(client, auth.RedirectURI), State: auth.State, PKCEChallenge: auth.PKCEChallenge, Principal: in.Principal, AllowedScopes: allowed, Resource: auth.Resource, ExpiresAt: e.deps.Clock.Now().Add(e.config.ConsentTTL)}
+	consent := ConsentSession[A]{Token: consentToken, Client: snapshotClient(client, auth.RedirectURI), State: auth.State, PKCEChallenge: auth.PKCEChallenge, Principal: in.Principal, AllowedScopes: allowed, Resource: auth.Resource, ExpiresAt: e.now().Add(e.config.ConsentTTL)}
 	if err := e.deps.Store.CommitLogin(ctx, LoginCommit[A]{TransactionDigest: DigestCredential(string(in.Transaction)), Consent: consent}, e.config.StatePolicy); err != nil {
 		return CompleteLoginResult{}, mapStoreError(err, ErrorInvalidGrant)
 	}
+	e.audit(ctx, "complete_login", "success", in.Principal, auth.ClientID, auth.Resource, allowed, "")
 	return CompleteLoginResult{ConsentToken: consentToken, ConsentURL: "/oauth/consent?token=" + url.QueryEscape(string(consentToken))}, nil
 }
 
@@ -219,7 +233,7 @@ func (e *Engine[A]) ConsentView(ctx context.Context, token ConsentToken) (Consen
 	if err != nil {
 		return ConsentView{}, invalidGrant(err)
 	}
-	if e.deps.Clock.Now().After(consent.ExpiresAt) {
+	if e.now().After(consent.ExpiresAt) {
 		return ConsentView{}, invalidGrant(ErrExpired)
 	}
 	resource, err := e.deps.Resources.LookupResource(ctx, consent.Resource)
@@ -253,7 +267,7 @@ func (e *Engine[A]) DecideConsent(ctx context.Context, in DecideConsentInput) (D
 	if err != nil {
 		return DecideConsentResult{}, invalidGrant(err)
 	}
-	if e.deps.Clock.Now().After(consent.ExpiresAt) {
+	if e.now().After(consent.ExpiresAt) {
 		return DecideConsentResult{}, invalidGrant(ErrExpired)
 	}
 	if in.Decision != ConsentDecisionApprove && in.Decision != ConsentDecisionDeny {
@@ -273,7 +287,7 @@ func (e *Engine[A]) DecideConsent(ctx context.Context, in DecideConsentInput) (D
 		if err != nil {
 			return DecideConsentResult{}, oauthError(ErrorTemporary, "could not create authorization code", 503, err)
 		}
-		code = &AuthorizationCodeRecord[A]{Digest: DigestCredential(string(rawCode)), ClientID: consent.Client.ID, RedirectURI: consent.Client.RedirectURI, PKCEChallenge: consent.PKCEChallenge, Principal: consent.Principal, Scopes: selected, Resource: consent.Resource, State: consent.State, ExpiresAt: e.deps.Clock.Now().Add(e.config.CodeTTL)}
+		code = &AuthorizationCodeRecord[A]{Digest: DigestCredential(string(rawCode)), ClientID: consent.Client.ID, RedirectURI: consent.Client.RedirectURI, PKCEChallenge: consent.PKCEChallenge, Principal: consent.Principal, Scopes: selected, Resource: consent.Resource, State: consent.State, ExpiresAt: e.now().Add(e.config.CodeTTL)}
 	}
 	result, err := e.deps.Store.CommitConsent(ctx, ConsentCommit[A]{ConsentDigest: DigestCredential(string(in.Token)), Code: valueOrEmpty(code), Decision: in.Decision}, e.config.StatePolicy)
 	if err != nil {
@@ -284,6 +298,11 @@ func (e *Engine[A]) DecideConsent(ctx context.Context, in DecideConsentInput) (D
 		return DecideConsentResult{}, err
 	}
 	_ = result
+	outcome := "denied"
+	if in.Decision == ConsentDecisionApprove {
+		outcome = "approved"
+	}
+	e.audit(ctx, "decide_consent", outcome, consent.Principal, consent.Client.ID, consent.Resource, selected, "")
 	return DecideConsentResult{RedirectURI: redirect}, nil
 }
 
@@ -303,10 +322,10 @@ func (e *Engine[A]) ExchangeCode(ctx context.Context, in ExchangeCodeInput) (Tok
 	if err != nil {
 		return TokenResponse{}, invalidGrant(err)
 	}
-	if e.deps.Clock.Now().After(code.ExpiresAt) || code.PKCEChallenge.Verify(in.CodeVerifier) != nil {
+	if e.now().After(code.ExpiresAt) || code.PKCEChallenge.Verify(in.CodeVerifier) != nil {
 		return TokenResponse{}, invalidGrant(ErrBinding)
 	}
-	now := e.deps.Clock.Now()
+	now := e.now()
 	access, err := e.deps.Tokens.IssueAccessToken(ctx, AccessGrant[A]{Principal: code.Principal, ClientID: code.ClientID, Resource: code.Resource, Scopes: code.Scopes, IssuedAt: now, ExpiresAt: now.Add(e.config.AccessTTL)})
 	if err != nil {
 		return TokenResponse{}, oauthError(ErrorTemporary, "could not issue access token", 503, err)
@@ -323,6 +342,7 @@ func (e *Engine[A]) ExchangeCode(ctx context.Context, in ExchangeCodeInput) (Tok
 	if err := e.deps.Store.CommitCodeExchange(ctx, CodeExchangeCommit[A]{CodeDigest: code.Digest, Refresh: grant}, e.config.StatePolicy); err != nil {
 		return TokenResponse{}, mapStoreError(err, ErrorInvalidGrant)
 	}
+	e.audit(ctx, "exchange_code", "success", code.Principal, code.ClientID, code.Resource, code.Scopes, "")
 	return TokenResponse{AccessToken: access.Value, TokenType: access.TokenType, ExpiresIn: access.ExpiresAt.Sub(now), RefreshToken: string(refresh), Scopes: code.Scopes}, nil
 }
 
@@ -346,7 +366,7 @@ func (e *Engine[A]) Refresh(ctx context.Context, in RefreshInput) (TokenResponse
 	if err != nil {
 		return TokenResponse{}, invalidGrant(err)
 	}
-	now := e.deps.Clock.Now()
+	now := e.now()
 	if !grant.RevokedAt.IsZero() || now.After(grant.ExpiresAt) || grant.ClientID != clientID {
 		return TokenResponse{}, invalidGrant(ErrBinding)
 	}
@@ -361,6 +381,7 @@ func (e *Engine[A]) Refresh(ctx context.Context, in RefreshInput) (TokenResponse
 		if err := e.deps.Store.RevokeRefreshFamily(ctx, grant.FamilyID, now); err != nil {
 			return TokenResponse{}, oauthError(ErrorTemporary, "identity revocation could not be persisted", 503, err)
 		}
+		e.audit(ctx, "refresh", "revoked", grant.Principal, grant.ClientID, grant.Resource, grant.Scopes, "principal_ineligible")
 		return TokenResponse{}, invalidGrant(ErrRevoked)
 	case RevalidationEligible:
 		if revalidation.Principal.Subject == "" || revalidation.Principal.Subject != grant.Principal.Subject {
@@ -390,6 +411,7 @@ func (e *Engine[A]) Refresh(ctx context.Context, in RefreshInput) (TokenResponse
 	if err := e.deps.Store.CommitRefreshRotation(ctx, RefreshRotation[A]{CurrentDigest: grant.Digest, FamilyID: grant.FamilyID, Generation: grant.Generation, Successor: successor}, e.config.StatePolicy); err != nil {
 		return TokenResponse{}, mapStoreError(err, ErrorInvalidGrant)
 	}
+	e.audit(ctx, "refresh", "success", revalidation.Principal, grant.ClientID, grant.Resource, nextScopes, "")
 	return TokenResponse{AccessToken: access.Value, TokenType: access.TokenType, ExpiresIn: access.ExpiresAt.Sub(now), RefreshToken: string(nextToken), Scopes: nextScopes}, nil
 }
 
@@ -407,7 +429,11 @@ func (e *Engine[A]) Revoke(ctx context.Context, in RevokeInput) error {
 	if err != nil {
 		return err
 	}
-	return e.deps.Store.RevokeRefreshFamily(ctx, grant.FamilyID, e.deps.Clock.Now())
+	if err := e.deps.Store.RevokeRefreshFamily(ctx, grant.FamilyID, e.now()); err != nil {
+		return err
+	}
+	e.audit(ctx, "revoke", "success", grant.Principal, grant.ClientID, grant.Resource, grant.Scopes, "")
+	return nil
 }
 
 func containsRedirect(values []RedirectURI, target RedirectURI) bool {
@@ -451,7 +477,7 @@ func valueOrEmpty[A any](value *AuthorizationCodeRecord[A]) AuthorizationCodeRec
 }
 
 func (e *Engine[A]) audit(ctx context.Context, operation, outcome string, principal Principal[A], client ClientID, resource ResourceID, scopes ScopeSet, reason string) {
-	e.deps.Audit.Record(ctx, AuditEvent{Time: e.deps.Clock.Now(), Operation: operation, Outcome: outcome, Subject: principal.Subject, ClientID: client, Resource: resource, Scopes: scopes, ReasonCode: reason})
+	e.deps.Audit.Record(ctx, AuditEvent{Time: e.now(), Operation: operation, Outcome: outcome, Subject: principal.Subject, ClientID: client, Resource: resource, Scopes: scopes, ReasonCode: reason})
 }
 
 func mapStoreError(err error, code ErrorCode) *OAuthError {

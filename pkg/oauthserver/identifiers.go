@@ -13,6 +13,11 @@ type Subject string
 type Scope string
 type ResourceID string
 type RedirectURI string
+
+type TrustedRedirect struct{ uri RedirectURI }
+
+func (r TrustedRedirect) URI() RedirectURI { return r.uri }
+
 type TransactionToken string
 type ConsentToken string
 type AuthorizationCode string
