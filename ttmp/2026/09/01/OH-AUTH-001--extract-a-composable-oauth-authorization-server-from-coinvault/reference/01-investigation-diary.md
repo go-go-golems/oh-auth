@@ -1796,6 +1796,7 @@ The implementation work is complete through deterministic integration. Tagged re
 - Opened oh-auth PR #4 for verification-only JWT and scope membership correctness.
 - Opened go-go-mcp PR #83 for the official SDK/auth verifier hard cut and dependency baseline.
 - Confirmed CoinVault PR #13 contains the v0.0.4 adoption, MCP boundary cutover, and RAG consumer.
+- Increased the CoinVault CI lint analysis timeout from five to ten minutes after the analysis completed with zero issues just beyond the original bound.
 - Validated clean repository states and exact pushed heads.
 - Ran docmgr doctor and updated the ticket index, task state, diary, changelog, and related evidence.
 - Refreshed the reMarkable ticket bundle with design, senior review, diary, and evidence manifest.
@@ -1810,11 +1811,12 @@ The implementation work is complete through deterministic integration. Tagged re
 
 - PRs were created at `https://github.com/go-go-golems/oh-auth/pull/4` and `https://github.com/go-go-golems/go-go-mcp/pull/83`.
 - All local deterministic gates were green at the pushed heads.
+- OH Auth PR #4 has eight successful checks; go-go-mcp PR #83 has successful lint and secret scanning; CoinVault PR #13 has successful test, lint, and secret scanning at the exact final head.
 - The final bundle rendered and uploaded to `/ai/2026/09/01/OH-AUTH-001`.
 
 ### What didn't work
 
-- N/A.
+- CoinVault's first final lint job timed out after five minutes even though analysis subsequently reported `0 issues.` The package loader alone took `4m1.56257926s`; the job finished analysis at approximately 5m19s and exited with `Timeout exceeded`. Commit `5cd8634` changed only the workflow bound to ten minutes, and the rerun passed.
 
 ### What I learned
 
@@ -1845,5 +1847,5 @@ The implementation work is complete through deterministic integration. Tagged re
 
 - OH Auth head: `abc1a63b77a43519cababa101fb24d0415ba370f`.
 - go-go-mcp head: `03360e4eb25ea0409ff19c602fca594c33cc9405`.
-- CoinVault head: `25c3723a056138b9a2582f0829101d1cfefaa5ae`.
+- CoinVault head: `5cd8634edfa71d4e216c5aae72aab4d18df143a7`.
 - Final smoke remains intentionally unexecuted.

@@ -208,3 +208,11 @@ Step 23: Opened oh-auth PR #4 and go-go-mcp PR #83, confirmed CoinVault PR #13 c
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../coinvault/internal/ragapi/server.go — CoinVault PR 13 independent RAG consumer
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../go-go-mcp/pkg/embeddable/auth_provider.go — go-go-mcp PR 83 hard-cut verifier boundary
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/jwttokens/service.go — OH Auth PR 4 release boundary
+
+## 2026-09-01
+
+Step 23 follow-up: Increased CoinVault CI lint timeout after a zero-issue analysis exceeded five minutes; exact head 5cd8634 now has green test/lint/secret checks.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../coinvault/.github/workflows/lint.yml — Allows complete CI analysis without changing lint policy
