@@ -7,7 +7,7 @@
 - [x] Normalize the oh-auth module and remove template placeholders <!-- t:n6mj -->
 - [x] Implement core values, transition engine, and conformance fixtures <!-- t:el1l -->
 - [x] Implement SQLite, JWT, HTTP, consent, and resource adapters <!-- t:2i9p -->
-- [ ] Cut CoinVault over and remove duplicate OAuth mechanics <!-- t:4gtn -->
+- [x] Cut CoinVault over and remove duplicate OAuth mechanics <!-- t:4gtn -->
 - [ ] Integrate an independent RAG resource server and test audience isolation <!-- t:wfnu -->
 - [ ] Run local security/race/fuzz/GOWORK-off gates, then one consolidated final deployed smoke <!-- t:f8yy -->
 - [x] Validate and upload the ticket bundle to reMarkable <!-- t:9dqj -->

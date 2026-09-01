@@ -91,3 +91,12 @@ Step 10: Addressed all five PR #1 review findings in oh-auth and advanced CoinVa
 ### Related Files
 
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/httptransport/server.go — Review fixes
+
+## 2026-09-01
+
+Completed the CoinVault cutover to oh-auth and pushed review-fixed dependency updates; deleted duplicate local OAuth provider/store mechanics.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/coinvault/cmd/coinvault/cmds/mcp.go — Published oh-auth dependency wiring
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/coinvault/internal/mcpoauth/provider.go — Application adapter over oh-auth

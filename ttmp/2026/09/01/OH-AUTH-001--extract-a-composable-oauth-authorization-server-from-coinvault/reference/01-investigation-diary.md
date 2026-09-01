@@ -796,7 +796,7 @@ The review fixes protect interoperability and resource bounds at the actual boun
 
 - `GOWORK=on go test ...` failed because this Go toolchain requires an absolute `GOWORK` path: `go: invalid GOWORK: not an absolute path`. The test was rerun with workspace auto-selection and later with `GOWORK=off`.
 - `go get github.com/go-go-golems/oh-auth@task/coinvault-oidc-mcp` rejected the slash-containing branch name: `invalid version: version "task/coinvault-oidc-mcp" invalid: disallowed version string`. Fetching the exact pushed commit produced a reproducible pseudo-version instead.
-- CoinVault's first pre-push attempt ran its full Dagger/web build and was killed during golangci-lint with `Killed` and `make: *** [Makefile:142: lint] Error 137`; its unit tests passed. The dependency-only follow-up commit was created after targeted validation; its push is being retried separately, while the full pre-push resource issue remains an environment limitation.
+- CoinVault's first pre-push attempt ran its full Dagger/web build and was killed during golangci-lint with `Killed` and `make: *** [Makefile:142: lint] Error 137`; its unit tests passed. The dependency-only follow-up commit was created after targeted validation. A retry with `GOGC=50 GOMAXPROCS=2 git push origin task/coinvault-oidc-mcp` passed the complete CoinVault pre-push suite and pushed successfully.
 
 ### What I learned
 
@@ -813,7 +813,7 @@ The review fixes protect interoperability and resource bounds at the actual boun
 
 - Verify the SQLite payload-expiry comparison remains correct across timestamp formatting and future schema migrations.
 - Review whether every consumer should allow HTTP methods with content-type parameters or require the current exact media type.
-- Re-run the complete CoinVault pre-push hook in a host with enough memory; the targeted tests passed but the prior full lint process was killed.
+- Keep the reduced-memory CoinVault push environment in the review runbook if the full Dagger/lint hook becomes memory constrained again.
 - Request a fresh PR review against commit `f0688ba` after the branch is pushed.
 
 ### What should be done in the future
