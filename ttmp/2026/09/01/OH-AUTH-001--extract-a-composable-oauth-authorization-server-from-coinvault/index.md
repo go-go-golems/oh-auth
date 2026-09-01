@@ -25,7 +25,7 @@ WhenToUse: Use as the landing page for design, implementation, validation, and c
 
 This ticket extracts CoinVault's OAuth authorization-server mechanics into a protocol-neutral Go library for separate MCP and RAG resource servers. The design centers on typed principals, exact resources, canonical scope sets, explicit state transitions, atomic store commits, bounded SQLite persistence, secure consent, and small application adapters.
 
-Research, design, library hardening, deterministic conformance, and CoinVault consumer cutover are complete. Independent RAG audience isolation and the single final deployed acceptance smoke remain pending.
+Research, design, library hardening, deterministic conformance, CoinVault cutover, MCP verifier separation, and independent RAG audience isolation are complete. The post-v0.0.4 APIs still need release tags and the single final deployed acceptance smoke remains pending.
 
 ## Key Links
 

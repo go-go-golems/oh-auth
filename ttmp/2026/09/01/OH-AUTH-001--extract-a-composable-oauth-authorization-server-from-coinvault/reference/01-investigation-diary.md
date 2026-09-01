@@ -1405,3 +1405,374 @@ The review loop was stopped deliberately when findings moved from security and o
 - Final CoinVault consumer head: `a1bc163`.
 - Bounded fuzz command: `GOWORK=off go test ./pkg/oauthserver -run='^$' -fuzz=FuzzOAuthValueParsers -fuzztime=5s`.
 - No deployed smoke was added or executed.
+
+## Step 18: Publish the architecture deep dive to the Obsidian vault
+
+This step converted the design, implementation diary, senior review, source code, and release evidence into a 5,332-word textbook-style project report. The report teaches the authority model and transition architecture before describing the implementation, then states the exact consumer work still outstanding.
+
+The report was committed independently in the Obsidian vault before consumer implementation resumed, preserving a durable account of the v0.0.4 checkpoint rather than rewriting that checkpoint after later integration work.
+
+### Prompt Context
+
+**User prompt (verbatim):** "First, use the design doc and diary and what you remember and  write a detailed project report for the obsidian vault as a deep dive technical analysis blog post using a textbook writing style (no analogies, see skill).
+ Commit and push the bsidian vault when done (go-go-parc vault).
+
+then, continue with OH-AUTH-001 and integrate and refactor and cleanup coinvault, go-go-mcp,rag. commit at appropriate intervals and keep a detailed diary as you work (using the diary format from the skill). Print out a brutalist work slip with the plan / different phases for the ticket. then before stsarting a phase, plrint a split about the phase, and print one when the phase is done."
+
+**Assistant interpretation:** First publish a long-form, evidence-backed technical report to go-go-parc; then resume OH-AUTH-001 through published-version adoption, a hard MCP boundary cutover, independent RAG integration, cleanup, deterministic gates, diary bookkeeping, and printed phase slips.
+
+**Inferred user intent:** Preserve the architecture as durable knowledge while completing the original multi-consumer purpose of the library without compatibility layers or repeated deployed smoke runs.
+
+**Commit (documentation):** `ea39f27e92d9865587feedc2acc9434cedc213b1` — "docs: add OH Auth technical project report"
+
+### What I did
+
+- Read the complete design, complete diary, senior review, implementation source, CoinVault adapter, and go-go-mcp bearer boundary.
+- Read the vault project-note exemplar and an existing project-report exemplar.
+- Wrote `PROJECT REPORT - OH Auth - A Transition-Oriented OAuth Server for MCP and RAG.md` under `Projects/2026/09/01`.
+- Used foundational prose, real code, state/sequence diagrams, exact paths, validation evidence, failure analysis, and no analogies.
+- Validated YAML, Mermaid block count, whitespace, line count, and forbidden analogy terms.
+- Staged only the new report, committed it, and pushed go-go-parc `main`.
+- Printed the five-phase continuation plan.
+
+### Why
+
+- The ticket documents are implementation references; the vault report is a durable teaching narrative for future engineers.
+- Publishing before further work preserves an accurate v0.0.4 checkpoint and prevents the report from becoming an unstructured live changelog.
+
+### What worked
+
+- Frontmatter parsed successfully.
+- The report contains 708 lines, 5,332 words, and three Mermaid diagrams.
+- The go-go-parc repository was clean before and after the isolated commit and push.
+
+### What didn't work
+
+- N/A.
+
+### What I learned
+
+- The implementation story is best organized around authority intersection, exact resources, atomic successor validation, and review-derived invariants rather than commit chronology.
+
+### What was tricky to build
+
+- The report had to distinguish the released library from the unfinished ticket. v0.0.4 was accurately described as a hardened package checkpoint while CoinVault release adoption, MCP ownership separation, RAG integration, and final smoke remained explicit.
+
+### What warrants a second pair of eyes
+
+- Review the report's description of retained refresh generations and client liveness against current store semantics.
+- Review the pending-work section after the integration phases complete; it intentionally describes the historical checkpoint at publication time.
+
+### What should be done in the future
+
+- Create a dated follow-up report if the final deployed architecture materially changes; do not silently rewrite the historical v0.0.4 report.
+
+### Code review instructions
+
+- Open the report in Obsidian and follow its source map into `engine.go`, `transitions.go`, `store.go`, and the consumer boundaries.
+- Verify commit `ea39f27` contains only the report.
+
+### Technical details
+
+- Vault: `/home/manuel/code/wesen/go-go-golems/go-go-parc`.
+- Report: `Projects/2026/09/01/PROJECT REPORT - OH Auth - A Transition-Oriented OAuth Server for MCP and RAG.md`.
+
+## Step 19: Adopt the published v0.0.4 module in CoinVault
+
+CoinVault now consumes the public `v0.0.4` tag instead of the pseudo-version ending at `c0544d83`. This proved that the tagged module contains the hardened library and resolves without workspace replacement.
+
+The phase ran CoinVault's complete pre-push pipeline rather than only the OAuth package tests. The web build, Go build, project linters, GoSec, govulncheck, and all command/internal tests passed.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 18)
+
+**Assistant interpretation:** Close the published-consumer acceptance criterion before changing interfaces or adding RAG behavior.
+
+**Inferred user intent:** Ensure the release is genuinely consumable rather than relying on a local workspace or unreleased commit.
+
+**Commit (code):** `0745d95` — "chore: adopt oh-auth v0.0.4"
+
+### What I did
+
+- Ran `GOWORK=off go get github.com/go-go-golems/oh-auth@v0.0.4` and `go mod tidy`.
+- Ran focused CoinVault OAuth, command, and MCP connection tests plus vet.
+- Committed only `go.mod` and `go.sum`.
+- Pushed through the complete reduced-memory CoinVault pre-push pipeline.
+- Printed P1 start and completion slips.
+
+### Why
+
+- OH-AUTH-001 explicitly requires CoinVault to pass against a published version outside `go.work`.
+
+### What worked
+
+- The Go proxy returned `v0.0.4` with checksum `K/k0OAMuMb4jWpqGyUeBrQg1Uhhg3TJ81fdGBZ4taOo=`.
+- CoinVault's complete gate passed with zero lint and GoSec findings and no called vulnerabilities.
+
+### What didn't work
+
+- N/A.
+
+### What I learned
+
+- v0.0.4 includes the complete hardened code through `c0544d83`; the later Makefile release helper is irrelevant to module consumers.
+
+### What was tricky to build
+
+- The full hook invokes a Dagger frontend build and memory-intensive lint analysis. `GOGC=50 GOMAXPROCS=2` retained the previously proven bounded-memory execution path.
+
+### What warrants a second pair of eyes
+
+- Confirm future dependency changes return to a release tag after the new verifier/RAG APIs are released.
+
+### What should be done in the future
+
+- Tag the next oh-auth release after the post-v0.0.4 resource-server API is finalized; CoinVault temporarily needs an exact pseudo-version for that development.
+
+### Code review instructions
+
+- Review only the version/checksum delta in CoinVault `go.mod` and `go.sum`.
+- Re-run the focused OAuth flow with `GOWORK=off`.
+
+### Technical details
+
+- Published version: `github.com/go-go-golems/oh-auth v0.0.4`.
+
+## Step 20: Hard-cut go-go-mcp to a resource-server verifier
+
+This phase removed authorization-server route mounting from go-go-mcp's public application auth contract. The replacement `HTTPAuthVerifier` owns bearer validation, protected-resource metadata, and challenge formatting only. CoinVault mounts OH Auth and the GEC callback explicitly in its composition root.
+
+No old interface, alias, route-mounter assertion, or compatibility adapter remains. Built-in development OAuth retains private route ownership through go-go-mcp's internal runtime assembly, while external OIDC and application verifiers do not expose a mount capability.
+
+### Prompt Context
+
+**User prompt (verbatim):** "make sure to kill backwards compatibility and complexity"
+
+**Assistant interpretation:** Make a coordinated breaking change rather than preserving `HTTPAuthProvider` or dynamically detecting legacy route mounters.
+
+**Inferred user intent:** Complete the dependency boundary that motivated OH Auth: MCP is a resource server and must not own application authorization-server routes.
+
+**Additional user prompt (verbatim):** "this was the whole point"
+
+**Commits (code):** go-go-mcp `86254e8` — "refactor: separate MCP verification from auth routes"; go-go-mcp `3c5e06b` — "refactor: hard cut over to HTTP auth verifier"; CoinVault `ab266b8` — "refactor: separate OAuth routes from MCP verification".
+
+### What I did
+
+- Removed `MountRoutes` from the public interface.
+- Renamed the public contract to `HTTPAuthVerifier` and its option to `WithHTTPAuthVerifier`.
+- Removed the old API entirely.
+- Added a private `httpAuthRuntime` that carries an optional built-in development issuer mount function.
+- Renamed CoinVault's mount operation to `MountAuthorizationServer`.
+- Added an explicit `MountAuthorizationServer func(*http.ServeMux)` to the CoinVault MCP composition config.
+- Made GEC OAuth configuration require both the verifier and authorization-server mount capability.
+- Updated tests to prove application verifiers own no routes and CoinVault still protects `/mcp` while mounting OAuth explicitly.
+- Updated CoinVault to the exact pushed go-go-mcp pseudo-version and passed full gates.
+
+### Why
+
+- Combining issuer routes and resource verification in one interface made MCP middleware an accidental authorization-server composition root.
+- A compatibility shim would preserve the invalid ownership model and complicate every future provider.
+
+### What worked
+
+- go-go-mcp focused tests, vet, and lint passed.
+- CoinVault focused tests and the complete pre-push build/lint/security/vulnerability/test pipeline passed.
+- Principal context injection and built-in auth modes remained covered.
+
+### What didn't work
+
+- The first go-go-mcp compile after factory refactoring failed with `pkg/embeddable/auth_provider_external_test.go:47:15: undefined: provider`; the typed runtime assertion was assigned to `provider` before token validation.
+- The first CoinVault `GOWORK=off` compile intentionally failed against the old released go-go-mcp API with errors such as `*Provider does not implement embeddable.HTTPAuthProvider (missing method MountRoutes)`. The pushed go-go-mcp commit was fetched as a pseudo-version before validating the coordinated hard cutover.
+
+### What I learned
+
+- A small internal runtime assembly is sufficient for the embedded development issuer; it does not justify exposing route ownership to production application verifiers.
+
+### What was tricky to build
+
+- The cutover spans two repositories and cannot compile independently between commits. go-go-mcp had to be committed and pushed first, then CoinVault fetched the exact revision and completed its rename/mount changes.
+
+### What warrants a second pair of eyes
+
+- Review all go-go-mcp callers for the removed `WithHTTPAuthProvider` symbol before release.
+- Confirm the private embedded development issuer remains intentionally inside go-go-mcp and cannot be selected accidentally in production configuration.
+
+### What should be done in the future
+
+- Release go-go-mcp with an explicit breaking-change note rather than adding aliases.
+
+### Code review instructions
+
+- Start with `pkg/embeddable/auth_provider.go` and `official_backend.go`, then follow CoinVault `mcpconn.NewHandler` and `MCPServeCommand.Run`.
+- Search for `HTTPAuthProvider`, `WithHTTPAuthProvider`, and application `MountRoutes`; no production references should remain.
+
+### Technical details
+
+- Final go-go-mcp phase head: `3c5e06bef8c77baa7f343f28b4645746836cb7bc`.
+- Final CoinVault phase head: `ab266b8`.
+
+## Step 21: Add an independent OAuth-protected RAG resource
+
+This phase completed the second-resource proof with production-shaped components. OH Auth gained a verification-only JWT adapter so a RAG process needs public keys but never the issuer's signing key. CoinVault's authorization server now registers distinct MCP and RAG resources and applies resource-aware scope policy.
+
+The webchat process exposes a real `POST /api/rag/query` resource when configured. Its middleware verifies the exact RAG audience, requires the RAG query scope, derives document access from signed GEC capability claims and server policy, and rejects request fields that attempt to select authorization.
+
+### Prompt Context
+
+**User prompt (verbatim):** (same as Step 18)
+
+**Assistant interpretation:** Implement the independent RAG consumer and bidirectional audience proof, not merely a token-verification unit test.
+
+**Inferred user intent:** Demonstrate that OH Auth is genuinely reusable across MCP and RAG while keeping their resources and enforcement independent.
+
+**Commits (code):** oh-auth `934e0c5` — "feat: add verification-only JWT adapter"; oh-auth `35f9bb6` — "fix: correct canonical scope membership search"; CoinVault `2d6c890` — "feat: add independent OAuth-protected RAG resource".
+
+### What I did
+
+- Added `jwttokens.NewVerifier(VerificationConfig)` with issuer, token type, public key ring, and clock but no private key or issuance capability.
+- Added CoinVault `ragresource` exact-audience middleware, protected-resource metadata, explicit-scope construction, challenge responses, and verified-token context.
+- Added `ragapi` with strict bounded JSON input and a real knowledge-service search call.
+- Added `coinvault:rag:documents:read` and `coinvault:rag:query` scopes.
+- Made the GEC scope policy resource-aware: MCP retains MCP scopes; RAG knowledge capability maps to RAG scopes.
+- Added signed `gec_capabilities` claims and derived internal document access from those verified claims.
+- Configured the MCP authorization-server process with both exact resource URLs.
+- Configured the webchat/RAG process with issuer, exact resource, and verification-only public keys.
+- Proved MCP token rejection at RAG, RAG token rejection at MCP, independent authorization flows, RAG refresh audience retention, empty-policy rejection, claim-derived search policy, and request authorization-field rejection.
+- Rejected custom application roots for the first RAG OAuth route implementation instead of partially supporting incorrect metadata paths.
+- Printed P3 start and completion slips.
+
+### Why
+
+- A separate process must not receive the authorization server's private RSA key merely to validate access tokens.
+- A second exact resource is the executable proof that the library is not only a renamed CoinVault MCP provider.
+- Document filtering must come from trusted identity and server policy, never model or request arguments.
+
+### What worked
+
+- OH Auth normal/race/vet/lint checks passed for the verifier adapter and scope fix.
+- CoinVault focused normal/race/vet/lint checks passed.
+- The complete CoinVault pre-push build, lint, GoSec, govulncheck, and test suite passed.
+- The complete GEC-backed HTTP flow issues and refreshes both resource grants from one issuer.
+
+### What didn't work
+
+- The first resource integration test failed despite the RAG token visibly containing `coinvault:rag:query`: `validated RAG token = {Subject:employee-1 ... Scopes:coinvault:rag:query offline_access ...}`. This exposed a reversed comparator in `ScopeSet.Contains`; `sort.Find` was comparing collection values to the target instead of target to collection values. The comparator and direct membership regression tests were corrected in `35f9bb6`.
+- Renaming the shared key loader first left three command tests calling `loadMCPVerificationKeys`, producing `undefined: loadMCPVerificationKeys`; the tests were hard-cut to `loadOAuthVerificationKeys`.
+- Focused lint found `QF1011: could omit type http.Handler from declaration`; the inferred interface type was used before commit.
+
+### What I learned
+
+- Cross-consumer integration exercises public helpers that lifecycle tests may not use. `ScopeSet.Contains` existed throughout v0.0.4 but lacked direct tests and was exposed immediately by resource middleware.
+- Verification-only construction is a distinct security capability, not a nullable signing service.
+- Resource scopes and document-access scopes are separate layers: the former permits the endpoint, while signed GEC claims plus server policy derive corpus filtering.
+
+### What was tricky to build
+
+- Browser session middleware already protects the webchat application. The independent RAG API must not pass through that cookie/session resolver, so it is mounted in a dedicated outer mux with its own bearer enforcement while all other routes retain existing session authentication.
+- One authorization server supports both resources, but each resource exposes its own metadata and verifier. The CoinVault MCP adapter remains fixed to the MCP audience; the RAG process constructs a verifier from public keys and remains unable to issue tokens.
+
+### What warrants a second pair of eyes
+
+- Review the new signed `gec_capabilities` claim and its mapping to document access scopes.
+- Review the decision to reject custom webchat roots while RAG OAuth is enabled.
+- Review RAG query response fields for the intended public API data-minimization contract.
+- Review deployment configuration so the MCP issuer and RAG process use the same public-key ring without copying private material.
+
+### What should be done in the future
+
+- Release the post-v0.0.4 verifier and scope fix, then pin CoinVault to that tag.
+- Add more RAG operations only with explicit scope policies; `Protect` intentionally rejects an empty policy.
+
+### Code review instructions
+
+- Begin with oh-auth `jwttokens.NewVerifier`, then CoinVault `ragresource.Server.Protect`, `ragapi.Server.query`, and resource-aware `gecScopePolicy`.
+- Run `TestProviderCompletesIndependentMCPAndRAGGrants`, all `ragresource`/`ragapi` tests, and race tests.
+
+### Technical details
+
+- RAG resource endpoint: `POST /api/rag/query`.
+- RAG metadata endpoint: `GET /.well-known/oauth-protected-resource`.
+- Authorization input accepts only `query` and optional bounded `limit`; unknown fields fail.
+- No deployed smoke was added or executed.
+
+## Step 22: Align dependencies, close deterministic gates, and prepare release handoff
+
+This phase completed the cleanup audit across all three repositories. CoinVault contains no duplicate OAuth authorization mechanics outside its identity/policy adapters; go-go-mcp exposes only the hard-cut verifier contract; and RAG enforces strict JSON, exact audience, explicit scopes, and trusted claim-derived document policy.
+
+The validation sweep also repaired go-go-mcp's stale module baseline. Its declared Glazed `v1.0.5` could not compile the current structured-output API outside `go.work`; the module now pins the newest upstream Glazed revision, a current Go toolchain, and a non-vulnerable gRPC release.
+
+### Prompt Context
+
+**User prompt (verbatim):** "update to newest glazed API"
+
+**Assistant interpretation:** Make go-go-mcp independently build against the current upstream Glazed API rather than relying on the workspace checkout or an older release.
+
+**Inferred user intent:** Remove workspace-only dependency behavior before release and keep the hard-cut API on current project conventions.
+
+**Commits (code):** go-go-mcp `03360e4` — "build: adopt current Glazed and security baseline"; CoinVault `25c3723` — "build: align OAuth consumers with current APIs".
+
+### What I did
+
+- Scanned CoinVault for duplicate PKCE, token, DCR, refresh, and JWT mechanics; remaining OIDC code is browser identity/session behavior rather than duplicate OH Auth protocol state.
+- Documented `HTTPAuthVerifier` and the absence of a compatibility alias in go-go-mcp's README.
+- Updated go-go-mcp from Glazed `v1.0.5` through `v1.4.3` to newest upstream `a7fdfda` (`v1.4.4-0...`).
+- Updated go-go-mcp to toolchain Go 1.26.7 and gRPC 1.82.1.
+- Added an executable test for the embedded development issuer's local-only return-target sanitizer and documented the validated GoSec redirect sink.
+- Added strict `application/json` enforcement to the RAG query endpoint.
+- Updated CoinVault to the final go-go-mcp pseudo-version; minimum-version selection also aligned it to newest Glazed.
+- Ran normal, race, vet, lint, GoSec, govulncheck, and bounded fuzz gates across the affected repositories.
+- Kept deployed smoke disabled.
+
+### Why
+
+- A release candidate that compiles only because `go.work` replaces a stale declared dependency is not independently consumable.
+- Newer security tooling reported both a provably sanitized redirect sink and real standard-library/gRPC vulnerabilities; the former needed evidence, while the latter needed dependency/toolchain updates.
+
+### What worked
+
+- go-go-mcp's full `GOWORK=off go test ./...` changed from compile failure to success after the Glazed update.
+- go-go-mcp normal tests, focused race tests, vet, lint, GoSec, and govulncheck passed.
+- OH Auth normal/race/vet/lint/GoSec/govulncheck passed; bounded fuzzing ran 17,327 executions with 27 new interesting inputs.
+- CoinVault focused normal/race/vet/lint passed, followed by the complete pre-push build, lint, GoSec, govulncheck, and all tests.
+
+### What didn't work
+
+- The first independent go-go-mcp run failed with repeated errors such as `undefined: settings.NewStructuredOutputSection` because `go.mod` still declared Glazed `v1.0.5` while workspace builds used a current local checkout.
+- The first broad GoSec invocation used a generic exclusion list and reported the repository's pre-existing editor command sinks plus `G710` on the embedded login redirect. The project exclusion intentionally covers user-selected editor commands; the redirect uses `sanitizeReturnTo`, and a direct local-path rejection test plus a narrow `#nosec G710` explanation now records that proof.
+- The first govulncheck after updating Glazed found Go 1.26.3 standard-library vulnerabilities and gRPC 1.78.0. Toolchain 1.26.7 and gRPC 1.82.1 removed all called vulnerabilities.
+
+### What I learned
+
+- Workspace substitution can hide a multi-year dependency drift even when focused package tests pass.
+- A security suppression should be paired with an executable validation of the sanitizing function, not only a comment.
+- Updating a foundational CLI library can legitimately move many indirect dependencies; full independent compilation is the acceptance criterion.
+
+### What was tricky to build
+
+- The latest Glazed revision adds a large transitive graph, so the module delta is larger than the OAuth API change. Pinning exact upstream `a7fdfda` makes the source of that graph explicit and reproducible.
+- GoSec's taint engine cannot infer the return-target sanitizer across the redirect sink. The sanitizer accepts only one leading slash followed by neither slash nor backslash; tests cover absolute URLs, protocol-relative URLs, backslash forms, empty/relative inputs, and valid local paths.
+
+### What warrants a second pair of eyes
+
+- Review the newest Glazed pseudo-version and decide whether to replace it with the next release tag before merging go-go-mcp.
+- Review go-go-mcp's existing editor-command G702 exclusion separately from OH-AUTH-001.
+- Confirm the RAG API's strict JSON response schema and search-hit data minimization before external publication.
+
+### What should be done in the future
+
+- Release OH Auth and go-go-mcp, then replace CoinVault pseudo-versions with those tags.
+- Deploy authorization server, MCP, and RAG together and run the one planned final smoke.
+
+### Code review instructions
+
+- Review go-go-mcp `go.mod`, `HTTPAuthVerifier`, and `sanitizeReturnTo` test.
+- Review CoinVault `go.mod` and strict RAG query media-type tests.
+- Re-run each repository with `GOWORK=off`; do not rely on the workspace.
+
+### Technical details
+
+- Glazed revision: `a7fdfda5e3c6dc5567003d6c695620542fd3936c`.
+- go-go-mcp phase commit: `03360e4eb25ea0409ff19c602fca594c33cc9405`.
+- CoinVault phase commit: `25c3723`.
+- No deployed smoke was added or executed.
