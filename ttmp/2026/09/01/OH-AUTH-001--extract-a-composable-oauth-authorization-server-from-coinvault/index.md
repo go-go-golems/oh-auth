@@ -25,12 +25,15 @@ WhenToUse: Use as the landing page for design, implementation, validation, and c
 
 This ticket extracts CoinVault's OAuth authorization-server mechanics into a protocol-neutral Go library for separate MCP and RAG resource servers. The design centers on typed principals, exact resources, canonical scope sets, explicit state transitions, atomic store commits, bounded SQLite persistence, secure consent, and small application adapters.
 
+CoinVault-specific runtime acceptance is tracked separately in CV-MCP-ACCEPT-001 in the CoinVault repository; this ticket remains the source of truth for reusable OH Auth library extraction and conformance.
+
 Research, design, library hardening, deterministic conformance, CoinVault cutover, MCP verifier separation, and independent RAG audience isolation are complete. The post-v0.0.4 APIs still need release tags and the single final deployed acceptance smoke remains pending.
 
 ## Key Links
 
 - [Composable OAuth Server Extraction Analysis, Design, and Implementation Guide](design-doc/01-composable-oauth-server-extraction-analysis-design-and-implementation-guide.md)
 - [Deferred OWASP Hardening and Higher Assurance Roadmap](design-doc/02-deferred-owasp-hardening-and-higher-assurance-roadmap.md)
+- CoinVault-specific MCP/OAuth/ChatGPT acceptance guide moved to [CV-MCP-ACCEPT-001](https://github.com/goldeneagle/coinvault/tree/main/ttmp/2026/09/02/CV-MCP-ACCEPT-001--coinvault-mcp-oauth-and-chatgpt-acceptance-testing)
 - [Senior Review of PR 1 Architecture, Implementation, and Review Process](code-review/01-senior-review-of-pr-1-architecture-implementation-and-review-process.md)
 - [Investigation Diary](reference/01-investigation-diary.md)
 - [Tasks](tasks.md)

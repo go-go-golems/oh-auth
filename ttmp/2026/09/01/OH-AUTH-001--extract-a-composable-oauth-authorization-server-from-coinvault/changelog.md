@@ -234,3 +234,11 @@ Step 25: Added the staged CoinVault MCP local, OAuth, ChatGPT, isolation, cleanu
 ### Related Files
 
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/design-doc/03-coinvault-mcp-local-oauth-and-chatgpt-acceptance-testing-guide.md — Continuation-ready runtime acceptance procedure
+
+## 2026-09-02
+
+Moved the CoinVault-specific MCP/OAuth/ChatGPT acceptance guide to the CoinVault repository ticket CV-MCP-ACCEPT-001; OH-AUTH-001 retains the reusable OAuth extraction history.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/reference/01-investigation-diary.md — Historical extraction record; CoinVault acceptance continuation moved to the consumer repository
