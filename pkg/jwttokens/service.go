@@ -61,7 +61,7 @@ func NewVerifier(config VerificationConfig) (*Verifier, error) {
 	}
 	verification := make(map[string]*rsa.PublicKey, len(config.Keys))
 	for kid, key := range config.Keys {
-		if kid == "" || key == nil || key.N.BitLen() < 2048 || key.E < 3 {
+		if kid == "" || key == nil || key.N == nil || key.N.BitLen() < 2048 || key.E < 3 {
 			return nil, errors.New("JWT verification key is invalid")
 		}
 		verification[kid] = key
@@ -84,7 +84,7 @@ func New[A any](config Config[A]) (*Service[A], error) {
 	}
 	verification := make(map[string]*rsa.PublicKey, len(config.Verification))
 	for kid, key := range config.Verification {
-		if kid == "" || key == nil || key.N.BitLen() < 2048 || key.E < 3 {
+		if kid == "" || key == nil || key.N == nil || key.N.BitLen() < 2048 || key.E < 3 {
 			return nil, errors.New("JWT verification key is invalid")
 		}
 		verification[kid] = key

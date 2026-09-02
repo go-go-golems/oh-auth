@@ -99,6 +99,9 @@ func TestVerifierRejectsIncompleteTrustConfiguration(t *testing.T) {
 	if _, err := jwttokens.NewVerifier(jwttokens.VerificationConfig{Issuer: "https://auth.example.test", Keys: map[string]*rsa.PublicKey{"weak": &weak.PublicKey}}); err == nil {
 		t.Fatal("verifier accepted a weak key")
 	}
+	if _, err := jwttokens.NewVerifier(jwttokens.VerificationConfig{Issuer: "https://auth.example.test", Keys: map[string]*rsa.PublicKey{"malformed": {E: 65537}}}); err == nil {
+		t.Fatal("verifier accepted a key with a nil modulus")
+	}
 }
 
 func TestServiceRejectsWeakRSAKey(t *testing.T) {
