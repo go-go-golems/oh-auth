@@ -74,11 +74,13 @@ func (e *Engine[A]) RegisterClient(ctx context.Context, in RegisterClientInput) 
 	}
 	clientID, err := e.deps.Secrets.NewClientID()
 	if err != nil {
+		e.auditError(ctx, "register_client", "secret_generation", ClientID(""), "", scopes, err)
 		return RegisterClientResult{}, oauthError(ErrorTemporary, "could not create client", 503, err)
 	}
 	now := e.now()
 	client := Client{ID: clientID, DisplayName: in.DisplayName, Trust: ClientTrustUnverified, RedirectURIs: redirects, AllowedScopes: scopes, CreatedAt: now, LastUsedAt: now}
 	if err := e.deps.Store.RegisterClient(ctx, client, e.config.StatePolicy); err != nil {
+		e.auditError(ctx, "register_client", storeReasonCode(err), client.ID, "", scopes, err)
 		return RegisterClientResult{}, mapStoreError(err, ErrorInvalidClientMetadata)
 	}
 	e.audit(ctx, "register_client", "success", Principal[A]{}, client.ID, "", scopes, "")
@@ -482,6 +484,31 @@ func valueOrEmpty[A any](value *AuthorizationCodeRecord[A]) AuthorizationCodeRec
 
 func (e *Engine[A]) audit(ctx context.Context, operation, outcome string, principal Principal[A], client ClientID, resource ResourceID, scopes ScopeSet, reason string) {
 	e.deps.Audit.Record(ctx, AuditEvent{Time: e.now(), Operation: operation, Outcome: outcome, Subject: principal.Subject, ClientID: client, Resource: resource, Scopes: scopes, ReasonCode: reason})
+}
+
+func (e *Engine[A]) auditError(ctx context.Context, operation, reason string, client ClientID, resource ResourceID, scopes ScopeSet, cause error) {
+	e.deps.Audit.Record(ctx, AuditEvent{Time: e.now(), Operation: operation, Outcome: "error", ClientID: client, Resource: resource, Scopes: scopes, ReasonCode: reason, Cause: cause})
+}
+
+func storeReasonCode(err error) string {
+	switch {
+	case errors.Is(err, ErrCapacity):
+		return "store_capacity"
+	case errors.Is(err, ErrConflict):
+		return "store_conflict"
+	case errors.Is(err, ErrConsumed):
+		return "store_consumed"
+	case errors.Is(err, ErrExpired):
+		return "store_expired"
+	case errors.Is(err, ErrRevoked):
+		return "store_revoked"
+	case errors.Is(err, ErrBinding):
+		return "store_binding"
+	case errors.Is(err, ErrNotFound):
+		return "store_not_found"
+	default:
+		return "store_error"
+	}
 }
 
 func mapStoreError(err error, code ErrorCode) *OAuthError {
