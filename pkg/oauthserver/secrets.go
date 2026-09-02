@@ -34,8 +34,16 @@ func (s CryptoSecrets) opaque(makeValue func(string) error) (string, error) {
 }
 
 func (s CryptoSecrets) NewClientID() (ClientID, error) {
-	value, err := s.opaque(func(value string) error { _, err := NewClientID(value); return err })
-	return ClientID(value), err
+	// Raw base64url may begin with '-' or '_', while ClientID uses the
+	// identifier grammar whose first character must be alphanumeric.
+	value, err := s.opaque(func(value string) error {
+		_, err := NewClientID("c" + value)
+		return err
+	})
+	if err != nil {
+		return "", err
+	}
+	return ClientID("c" + value), nil
 }
 func (s CryptoSecrets) NewTransactionToken() (TransactionToken, error) {
 	value, err := s.opaque(func(value string) error { _, err := NewTransactionToken(value); return err })
