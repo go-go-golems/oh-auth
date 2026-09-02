@@ -56,6 +56,54 @@ func TestServiceIssuesAndVerifiesResourceBoundToken(t *testing.T) {
 	}
 }
 
+func TestVerificationOnlyResourceServer(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := memorytest.NewClock(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC))
+	issuer := "https://auth.example.test"
+	service, err := jwttokens.New(jwttokens.Config[struct{}]{Issuer: issuer, ActiveKeyID: "active", ActiveKey: key, Clock: clock})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scopes, _ := oauthserver.NewScopeSet("rag:documents:read")
+	issued, err := service.IssueAccessToken(context.Background(), oauthserver.AccessGrant[struct{}]{Principal: oauthserver.Principal[struct{}]{Subject: "employee-1"}, ClientID: "client-1", Resource: "https://rag.example.test/api", Scopes: scopes, IssuedAt: clock.Now(), ExpiresAt: clock.Now().Add(10 * time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verifier, err := jwttokens.NewVerifier(jwttokens.VerificationConfig{Issuer: issuer, Keys: map[string]*rsa.PublicKey{"active": &key.PublicKey}, Clock: clock})
+	if err != nil {
+		t.Fatal(err)
+	}
+	verified, err := verifier.VerifyAccessToken(context.Background(), issued.Value, "https://rag.example.test/api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if verified.Subject != "employee-1" || verified.Scopes.String() != "rag:documents:read" {
+		t.Fatalf("unexpected verified token: %+v", verified)
+	}
+	if _, err := verifier.VerifyAccessToken(context.Background(), issued.Value, "https://mcp.example.test/mcp"); err == nil {
+		t.Fatal("verification-only resource server accepted the wrong audience")
+	}
+}
+
+func TestVerifierRejectsIncompleteTrustConfiguration(t *testing.T) {
+	if _, err := jwttokens.NewVerifier(jwttokens.VerificationConfig{Issuer: "https://auth.example.test"}); err == nil {
+		t.Fatal("verifier without keys succeeded")
+	}
+	weak, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := jwttokens.NewVerifier(jwttokens.VerificationConfig{Issuer: "https://auth.example.test", Keys: map[string]*rsa.PublicKey{"weak": &weak.PublicKey}}); err == nil {
+		t.Fatal("verifier accepted a weak key")
+	}
+	if _, err := jwttokens.NewVerifier(jwttokens.VerificationConfig{Issuer: "https://auth.example.test", Keys: map[string]*rsa.PublicKey{"malformed": {E: 65537}}}); err == nil {
+		t.Fatal("verifier accepted a key with a nil modulus")
+	}
+}
+
 func TestServiceRejectsWeakRSAKey(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 1024)
 	if err != nil {

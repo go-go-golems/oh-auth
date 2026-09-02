@@ -8,7 +8,7 @@
 - [x] Implement core values, transition engine, and conformance fixtures <!-- t:el1l -->
 - [x] Implement SQLite, JWT, HTTP, consent, and resource adapters <!-- t:2i9p -->
 - [x] Cut CoinVault over and remove duplicate OAuth mechanics <!-- t:4gtn -->
-- [ ] Integrate an independent RAG resource server and test audience isolation <!-- t:wfnu -->
+- [x] Integrate an independent RAG resource server and test audience isolation <!-- t:wfnu -->
 - [ ] Run local security/race/fuzz/GOWORK-off gates, then one consolidated final deployed smoke <!-- t:f8yy -->
 - [x] Validate and upload the ticket bundle to reMarkable <!-- t:9dqj -->
 - [x] Review design against OWASP ASVS, cheat sheets, API Security, and WSTG guidance <!-- t:z926 -->

@@ -6,18 +6,42 @@ The library owns OAuth state transitions, PKCE, client registration, consent, au
 
 ## Status
 
-This repository is implementing OH-AUTH-001. The v0.1 design is OWASP-informed, but is not an ASVS certification claim. The package is not yet a stable release.
+The first hardened package release is `v0.0.4`. OH-AUTH-001 remains active while CoinVault, go-go-mcp, and the independent RAG resource complete their hard cutover. The design is OWASP-informed, but is not an ASVS certification claim.
 
 ## Package layout
 
 - `pkg/oauthserver`: protocol-neutral domain types, transition engine, and ports.
 - `pkg/oauthresource`: resource-server metadata and bearer-token helpers.
 - `pkg/httptransport`: HTTP endpoints and consent UI.
-- `pkg/jwttokens`: JWT access-token issuance and verification.
+- `pkg/jwttokens`: JWT access-token issuance plus a verification-only resource-server adapter.
 - `pkg/sqlitestore`: bounded durable state transitions using SQLite.
 - `pkg/memorytest`: deterministic test doubles and conformance fixtures.
 
 Adapters must depend on `oauthserver`; the core package never imports an application, MCP, RAG, HTTP, database, or JWT implementation.
+
+## Independent resource-server verification
+
+A resource-server process should hold verification keys, not the authorization server's private signing key:
+
+```go
+verifier, err := jwttokens.NewVerifier(jwttokens.VerificationConfig{
+    Issuer: "https://auth.example.com",
+    Keys: map[string]*rsa.PublicKey{
+        "current": publicKey,
+    },
+})
+if err != nil {
+    return err
+}
+
+verified, err := verifier.VerifyAccessToken(
+    ctx,
+    rawBearerToken,
+    oauthserver.ResourceID("https://rag.example.com/api"),
+)
+```
+
+The expected resource is required on every verification call. An MCP token and a RAG token issued by the same issuer remain non-interchangeable because their exact audiences differ.
 
 ## Development
 

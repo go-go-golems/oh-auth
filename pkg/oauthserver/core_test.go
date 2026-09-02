@@ -36,6 +36,12 @@ func TestScopeSetCanonicalAndImmutable(t *testing.T) {
 	if !set.Intersect(other).IsSubsetOf(set) {
 		t.Fatal("intersection must be a subset")
 	}
+	if !set.Contains("read") || !set.Contains("write") {
+		t.Fatal("Contains rejected a present scope")
+	}
+	if set.Contains("admin") || set.Contains("zero") {
+		t.Fatal("Contains accepted an absent scope")
+	}
 }
 
 func TestPKCES256(t *testing.T) {

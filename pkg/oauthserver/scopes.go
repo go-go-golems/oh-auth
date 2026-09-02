@@ -44,10 +44,10 @@ func ParseScopes(raw string) (ScopeSet, error) {
 
 func (s ScopeSet) Contains(scope Scope) bool {
 	_, found := sort.Find(len(s.values), func(i int) int {
-		if s.values[i] < scope {
+		if scope < s.values[i] {
 			return -1
 		}
-		if s.values[i] > scope {
+		if scope > s.values[i] {
 			return 1
 		}
 		return 0

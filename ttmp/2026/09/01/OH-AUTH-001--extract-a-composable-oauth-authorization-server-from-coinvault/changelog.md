@@ -169,3 +169,60 @@ Step 17: Added deterministic store/HTTP/resource/fuzz conformance, closed remain
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/httptransport/flow_test.go — Complete local OAuth flow without deployed smoke
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/memorytest/store.go — Final refresh digest collision consistency
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/oauthserver/store_conformance_test.go — Shared memory and SQLite executable contract
+
+## 2026-09-01
+
+Step 18: Published the 5,332-word OH Auth deep-dive project report to go-go-parc (ea39f27).
+
+### Related Files
+
+- /home/manuel/code/wesen/go-go-golems/go-go-parc/Projects/2026/09/01/PROJECT REPORT - OH Auth - A Transition-Oriented OAuth Server for MCP and RAG.md — Durable textbook-style project analysis
+
+
+## 2026-09-01
+
+Steps 19-20: Adopted oh-auth v0.0.4 in CoinVault and hard-cut go-go-mcp from route-owning HTTPAuthProvider to verifier-only HTTPAuthVerifier.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../coinvault/internal/mcpoauth/provider.go — Explicit authorization-server mount and MCP verifier adapter
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../go-go-mcp/pkg/embeddable/auth_provider.go — Hard-cut resource-server verifier contract
+
+
+## 2026-09-01
+
+Steps 21-22: Added verification-only JWT construction, independent OAuth-protected RAG search with bidirectional audience isolation, fixed ScopeSet.Contains, and aligned go-go-mcp to current Glazed/toolchain/security dependencies.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../coinvault/internal/ragapi/server.go — Protected search API and claim-derived policy
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../coinvault/internal/ragresource/server.go — Exact-audience RAG middleware
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/jwttokens/service.go — Verification-only resource-server adapter
+
+## 2026-09-01
+
+Step 23: Opened oh-auth PR #4 and go-go-mcp PR #83, confirmed CoinVault PR #13 consumer heads, and prepared the final release/smoke handoff.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../coinvault/internal/ragapi/server.go — CoinVault PR 13 independent RAG consumer
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../go-go-mcp/pkg/embeddable/auth_provider.go — go-go-mcp PR 83 hard-cut verifier boundary
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/jwttokens/service.go — OH Auth PR 4 release boundary
+
+## 2026-09-01
+
+Step 23 follow-up: Increased CoinVault CI lint timeout after a zero-issue analysis exceeded five minutes; exact head 5cd8634 now has green test/lint/secret checks.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../coinvault/.github/workflows/lint.yml — Allows complete CI analysis without changing lint policy
+
+## 2026-09-01
+
+Step 24: Resolved OH Auth and go-go-mcp review findings, advanced CoinVault to exact corrected revisions, and verified all five CoinVault review findings remain covered (71a304c, d3b9e26, d4b6cac).
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../coinvault/go.mod — Consume reviewed dependency heads
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../go-go-mcp/pkg/embeddable/command.go — Preserve custom verifier across CLI defaults
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/jwttokens/service.go — Reject malformed verification keys
