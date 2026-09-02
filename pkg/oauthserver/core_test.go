@@ -20,6 +20,10 @@ func (r *auditRecorder) Record(_ context.Context, event oauthserver.AuditEvent) 
 }
 
 func TestScopeSetCanonicalAndImmutable(t *testing.T) {
+	empty, err := oauthserver.NewScopeSet()
+	if err != nil || !empty.Empty() {
+		t.Fatalf("empty scope set = %v, %v", empty, err)
+	}
 	set, err := oauthserver.NewScopeSet("read", "write", "read")
 	if err != nil {
 		t.Fatal(err)

@@ -57,6 +57,9 @@ func (s ScopeSet) Contains(scope Scope) bool {
 
 func (s ScopeSet) Values() []Scope { return append([]Scope(nil), s.values...) }
 
+// Empty reports whether the set grants no OAuth authority.
+func (s ScopeSet) Empty() bool { return len(s.values) == 0 }
+
 func (s ScopeSet) Intersect(other ScopeSet) ScopeSet {
 	values := make([]Scope, 0, minInt(len(s.values), len(other.values)))
 	left, right := 0, 0
