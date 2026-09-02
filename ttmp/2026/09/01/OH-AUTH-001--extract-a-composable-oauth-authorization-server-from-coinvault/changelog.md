@@ -226,3 +226,11 @@ Step 24: Resolved OH Auth and go-go-mcp review findings, advanced CoinVault to e
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../coinvault/go.mod — Consume reviewed dependency heads
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../go-go-mcp/pkg/embeddable/command.go — Preserve custom verifier across CLI defaults
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/jwttokens/service.go — Reject malformed verification keys
+
+## 2026-09-02
+
+Step 25: Added the staged CoinVault MCP local, OAuth, ChatGPT, isolation, cleanup, and final-smoke acceptance guide for the next session.
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/design-doc/03-coinvault-mcp-local-oauth-and-chatgpt-acceptance-testing-guide.md — Continuation-ready runtime acceptance procedure

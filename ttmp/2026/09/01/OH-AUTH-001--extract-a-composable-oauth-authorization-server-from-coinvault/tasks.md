@@ -16,3 +16,4 @@
 - [x] Complete senior architecture and systemic code review of all PR #1 findings <!-- t:ry0c -->
 - [x] Resolve merge-blocking PR #1 and local security findings from the senior review <!-- t:meew -->
 - [x] Build shared store HTTP engine and fault-injection conformance suites before release <!-- t:ox38 -->
+- [ ] Execute the staged local MCP, public OAuth, ChatGPT, isolation, cleanup, and final deployed acceptance guide <!-- t:hy65 -->

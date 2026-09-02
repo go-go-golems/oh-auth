@@ -1930,3 +1930,68 @@ The review fixes preserve fail-closed startup behavior: malformed RSA trust mate
 - OH Auth review thread `3909354960`: resolved.
 - go-go-mcp review thread `3909364976`: resolved.
 - CoinVault coverage evidence: `https://github.com/goldeneagle/coinvault/pull/13#issuecomment-5503051940`.
+
+## Step 25: Prepare the real MCP and ChatGPT acceptance guide
+
+This step converted the planned next-session runtime work into a staged, executable acceptance guide. The guide separates deterministic validation, loopback MCP transport, production-shaped tools, local agent clients, public OAuth discovery, manual protocol validation, ChatGPT interoperability, security isolation, and final deployed smoke.
+
+The procedure uses released OH Auth and go-go-mcp tags and preserves the deployment boundary. A temporary public tunnel is permitted only as an isolated interoperability environment; it does not replace approved artifact publication or the final deployed smoke.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Ok, create a design doc /guide for all these testing steps, we'll do them in the next session"
+
+**Assistant interpretation:** Write a continuation-ready design document containing all commands, sequencing, assertions, failure triage, security checks, and cleanup steps needed to test CoinVault with local MCP clients and ChatGPT.
+
+**Inferred user intent:** Make the next session operational rather than requiring the testing strategy to be reconstructed from conversation history.
+
+### What I did
+
+- Added `design-doc/03-coinvault-mcp-local-oauth-and-chatgpt-acceptance-testing-guide.md`.
+- Documented nine ordered phases from deterministic preflight through cleanup and the final deployed smoke.
+- Added explicit commands, metadata assertions, ChatGPT prompts, negative audience tests, lifecycle tests, evidence-handling rules, stop conditions, and a failure-report template.
+- Recorded open questions that must be resolved before creating a temporary public OAuth environment.
+
+### Why
+
+- Testing ChatGPT first would combine MCP transport, public routing, OAuth discovery, browser identity, consent, token issuance, and tool policy into one difficult-to-diagnose failure surface.
+- A staged guide ensures each boundary is proven before the next external dependency is introduced.
+
+### What worked
+
+- The guide anchors its topology and commands to the current CoinVault, OH Auth, and go-go-mcp source boundaries.
+- It uses the released dependency baseline: OH Auth `v0.0.5` and go-go-mcp `v0.1.0`.
+- It preserves the single final deployed smoke as a narrow post-deployment acceptance action.
+
+### What didn't work
+
+- Current web-search tooling returned HTTP 401 while attempting to verify the latest hosted-client UI instructions. The guide therefore requires checking each installed client's help and recording ChatGPT's observed UI rather than asserting unstable command/UI syntax.
+
+### What I learned
+
+- The protocol endpoints are stable enough to specify exactly, while local agent commands and ChatGPT connector labels should be treated as versioned operator interfaces.
+
+### What was tricky to build
+
+- The guide needed to be concrete without embedding credentials or pretending a public test hostname, GEC test principal, or ChatGPT workspace had already been selected. It uses explicit placeholders, entry criteria, and secret-handling rules to make those dependencies visible.
+
+### What warrants a second pair of eyes
+
+- Confirm the selected GEC test identity and minimum read-only capability set.
+- Confirm the temporary hostname and tunnel approach before exposing the loopback listener.
+- Confirm the installed local client's current Streamable HTTP/OAuth support from its own help output.
+
+### What should be done in the future
+
+- Execute the guide in order during the next session and retain only sanitized acceptance evidence.
+
+### Code review instructions
+
+- Review the new guide from its architecture section through the phase entry criteria before running commands.
+- Verify all URL placeholders and secret-file paths are replaced with test-environment values, never production credentials.
+
+### Technical details
+
+- Guide: `design-doc/03-coinvault-mcp-local-oauth-and-chatgpt-acceptance-testing-guide.md`.
+- Runtime baseline: CoinVault pins OH Auth `v0.0.5` and go-go-mcp `v0.1.0`.
+- No runtime server, tunnel, ChatGPT connector, deployment, or deployed smoke was started in this step.
