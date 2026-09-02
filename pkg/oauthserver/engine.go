@@ -74,13 +74,13 @@ func (e *Engine[A]) RegisterClient(ctx context.Context, in RegisterClientInput) 
 	}
 	clientID, err := e.deps.Secrets.NewClientID()
 	if err != nil {
-		e.auditError(ctx, "register_client", "secret_generation", ClientID(""), "", scopes, err)
+		e.auditError(ctx, "register_client", "secret_generation", "", "", "", scopes, err)
 		return RegisterClientResult{}, oauthError(ErrorTemporary, "could not create client", 503, err)
 	}
 	now := e.now()
 	client := Client{ID: clientID, DisplayName: in.DisplayName, Trust: ClientTrustUnverified, RedirectURIs: redirects, AllowedScopes: scopes, CreatedAt: now, LastUsedAt: now}
 	if err := e.deps.Store.RegisterClient(ctx, client, e.config.StatePolicy); err != nil {
-		e.auditError(ctx, "register_client", storeReasonCode(err), client.ID, "", scopes, err)
+		e.auditError(ctx, "register_client", storeReasonCode(err), "", client.ID, "", scopes, err)
 		return RegisterClientResult{}, mapStoreError(err, ErrorInvalidClientMetadata)
 	}
 	e.audit(ctx, "register_client", "success", Principal[A]{}, client.ID, "", scopes, "")
@@ -133,48 +133,60 @@ type BeginAuthorizationResult struct {
 func (e *Engine[A]) BeginAuthorization(ctx context.Context, in BeginAuthorizationInput) (BeginAuthorizationResult, error) {
 	clientID, err := NewClientID(in.ClientID)
 	if err != nil || in.ResponseType != "code" || in.State == "" || len(in.State) > e.config.HTTP.MaxFieldBytes {
+		e.auditDenied(ctx, "begin_authorization", "invalid_request", Principal[A]{}, "", "", ScopeSet{})
 		return BeginAuthorizationResult{}, invalidArgument("authorization request is invalid", err)
 	}
 	redirect, err := NewRedirectURI(in.RedirectURI)
 	if err != nil || !validRedirectURI(string(redirect), true) {
+		e.auditDenied(ctx, "begin_authorization", "invalid_redirect_uri", Principal[A]{}, "", "", ScopeSet{})
 		return BeginAuthorizationResult{}, oauthError(ErrorInvalidRedirectURI, "redirect URI is invalid", 400, err)
 	}
 	challenge, err := NewPKCEChallenge(in.CodeChallenge, in.ChallengeMethod)
 	if err != nil {
+		e.auditDenied(ctx, "begin_authorization", "invalid_pkce", Principal[A]{}, "", "", ScopeSet{})
 		return BeginAuthorizationResult{}, invalidArgument("PKCE is required", err)
 	}
 	requested, err := NewScopeSet(stringsToScopes(in.Scopes)...)
 	if err != nil {
+		e.auditDenied(ctx, "begin_authorization", "invalid_scope", Principal[A]{}, "", "", ScopeSet{})
 		return BeginAuthorizationResult{}, oauthError(ErrorInvalidScope, "requested scopes are invalid", 400, err)
 	}
 	resourceID, err := NewResourceID(in.Resource)
 	if err != nil {
+		e.auditDenied(ctx, "begin_authorization", "invalid_resource", Principal[A]{}, "", "", ScopeSet{})
 		return BeginAuthorizationResult{}, oauthError(ErrorInvalidTarget, "resource is invalid", 400, err)
 	}
 	client, err := e.deps.Store.GetClient(ctx, clientID)
 	if err != nil {
+		e.auditDenied(ctx, "begin_authorization", storeReasonCode(err), Principal[A]{}, clientID, "", ScopeSet{})
 		return BeginAuthorizationResult{}, invalidArgument("client is invalid", err)
 	}
 	if !containsRedirect(client.RedirectURIs, redirect) {
+		e.auditDenied(ctx, "begin_authorization", "redirect_not_registered", Principal[A]{}, clientID, "", ScopeSet{})
 		return BeginAuthorizationResult{}, oauthError(ErrorInvalidRedirectURI, "redirect URI is not registered", 400, ErrBinding)
 	}
 	resource, err := e.deps.Resources.LookupResource(ctx, resourceID)
 	if err != nil {
+		e.auditDenied(ctx, "begin_authorization", "resource_not_supported", Principal[A]{}, clientID, resourceID, ScopeSet{})
 		return BeginAuthorizationResult{}, oauthError(ErrorInvalidTarget, "resource is not supported", 400, err)
 	}
 	if !requested.IsSubsetOf(client.AllowedScopes) || !requested.IsSubsetOf(resource.SupportedScopes) || !requested.IsSubsetOf(e.config.SupportedScopes) {
+		e.auditDenied(ctx, "begin_authorization", "scope_not_allowed", Principal[A]{}, clientID, resourceID, requested)
 		return BeginAuthorizationResult{}, oauthError(ErrorInvalidScope, "requested scopes are not allowed", 400, ErrInvalid)
 	}
 	if err := e.deps.Store.TouchClient(ctx, client.ID, e.now()); err != nil {
+		e.auditError(ctx, "begin_authorization", storeReasonCode(err), "", clientID, resourceID, requested, err)
 		return BeginAuthorizationResult{}, mapStoreError(err, ErrorInvalidRequest)
 	}
 	token, err := e.deps.Secrets.NewTransactionToken()
 	if err != nil {
+		e.auditError(ctx, "begin_authorization", "secret_generation", "", clientID, resourceID, requested, err)
 		return BeginAuthorizationResult{}, oauthError(ErrorTemporary, "could not start authorization", 503, err)
 	}
 	now := e.now()
 	authorization := AuthorizationTransaction{Token: token, ClientID: clientID, RedirectURI: redirect, State: in.State, PKCEChallenge: challenge, RequestedScopes: requested, Resource: resourceID, ExpiresAt: now.Add(e.config.TransactionTTL)}
 	if err := e.deps.Store.CreateAuthorization(ctx, authorization, e.config.StatePolicy); err != nil {
+		e.auditError(ctx, "begin_authorization", storeReasonCode(err), "", clientID, resourceID, requested, err)
 		return BeginAuthorizationResult{}, mapStoreError(err, ErrorInvalidRequest)
 	}
 	e.audit(ctx, "begin_authorization", "success", Principal[A]{}, clientID, resourceID, requested, "")
@@ -192,35 +204,43 @@ type CompleteLoginResult struct {
 
 func (e *Engine[A]) CompleteLogin(ctx context.Context, in CompleteLoginInput[A]) (CompleteLoginResult, error) {
 	if _, err := NewSubject(string(in.Principal.Subject)); err != nil {
+		e.auditDenied(ctx, "complete_login", "invalid_subject", in.Principal, "", "", ScopeSet{})
 		return CompleteLoginResult{}, oauthError(ErrorAccessDenied, "authenticated principal is invalid", 400, err)
 	}
 	auth, err := e.deps.Store.GetAuthorization(ctx, DigestCredential(string(in.Transaction)))
 	if err != nil {
+		e.auditDenied(ctx, "complete_login", storeReasonCode(err), in.Principal, "", "", ScopeSet{})
 		return CompleteLoginResult{}, invalidGrant(err)
 	}
 	if e.now().After(auth.ExpiresAt) {
+		e.auditDenied(ctx, "complete_login", "store_expired", in.Principal, auth.ClientID, auth.Resource, ScopeSet{})
 		return CompleteLoginResult{}, invalidGrant(ErrExpired)
 	}
 	client, err := e.deps.Store.GetClient(ctx, auth.ClientID)
 	if err != nil || !containsRedirect(client.RedirectURIs, auth.RedirectURI) {
+		e.auditDenied(ctx, "complete_login", "store_binding", in.Principal, auth.ClientID, auth.Resource, ScopeSet{})
 		return CompleteLoginResult{}, invalidGrant(err)
 	}
 	resource, err := e.deps.Resources.LookupResource(ctx, auth.Resource)
 	if err != nil {
+		e.auditDenied(ctx, "complete_login", "resource_not_supported", in.Principal, auth.ClientID, auth.Resource, ScopeSet{})
 		return CompleteLoginResult{}, invalidGrant(err)
 	}
 	available, err := e.deps.Scopes.AvailableScopes(ctx, in.Principal, resource)
 	if err != nil {
+		e.auditError(ctx, "complete_login", "scope_policy", in.Principal.Subject, auth.ClientID, auth.Resource, ScopeSet{}, err)
 		return CompleteLoginResult{}, oauthError(ErrorTemporary, "could not determine permissions", 503, err)
 	}
 	allowed := auth.RequestedScopes.Intersect(client.AllowedScopes).Intersect(resource.SupportedScopes).Intersect(available)
 	consentToken, err := e.deps.Secrets.NewConsentToken()
 	if err != nil {
+		e.auditError(ctx, "complete_login", "secret_generation", in.Principal.Subject, auth.ClientID, auth.Resource, allowed, err)
 		return CompleteLoginResult{}, oauthError(ErrorTemporary, "could not create consent", 503, err)
 	}
 	now := e.now()
 	consent := ConsentSession[A]{Token: consentToken, Client: snapshotClient(client, auth.RedirectURI), State: auth.State, PKCEChallenge: auth.PKCEChallenge, Principal: in.Principal, AllowedScopes: allowed, Resource: auth.Resource, AuthorizationEnds: now.Add(e.config.RefreshTTL), ExpiresAt: now.Add(e.config.ConsentTTL)}
 	if err := e.deps.Store.CommitLogin(ctx, LoginCommit[A]{TransactionDigest: DigestCredential(string(in.Transaction)), Consent: consent}, e.config.StatePolicy); err != nil {
+		e.auditError(ctx, "complete_login", storeReasonCode(err), in.Principal.Subject, auth.ClientID, auth.Resource, allowed, err)
 		return CompleteLoginResult{}, mapStoreError(err, ErrorInvalidGrant)
 	}
 	e.audit(ctx, "complete_login", "success", in.Principal, auth.ClientID, auth.Resource, allowed, "")
@@ -264,19 +284,24 @@ type DecideConsentResult struct{ RedirectURI string }
 func (e *Engine[A]) DecideConsent(ctx context.Context, in DecideConsentInput) (DecideConsentResult, error) {
 	consent, err := e.deps.Store.GetConsent(ctx, DigestCredential(string(in.Token)))
 	if err != nil {
+		e.auditDenied(ctx, "decide_consent", storeReasonCode(err), Principal[A]{}, "", "", ScopeSet{})
 		return DecideConsentResult{}, invalidGrant(err)
 	}
 	if e.now().After(consent.ExpiresAt) {
+		e.auditDenied(ctx, "decide_consent", "store_expired", consent.Principal, consent.Client.ID, consent.Resource, ScopeSet{})
 		return DecideConsentResult{}, invalidGrant(ErrExpired)
 	}
 	if in.Decision != ConsentDecisionApprove && in.Decision != ConsentDecisionDeny {
+		e.auditDenied(ctx, "decide_consent", "invalid_decision", consent.Principal, consent.Client.ID, consent.Resource, ScopeSet{})
 		return DecideConsentResult{}, invalidArgument("consent decision is invalid", ErrInvalid)
 	}
 	selected, err := NewScopeSet(in.SelectedScopes...)
 	if err != nil {
+		e.auditDenied(ctx, "decide_consent", "invalid_scope", consent.Principal, consent.Client.ID, consent.Resource, ScopeSet{})
 		return DecideConsentResult{}, oauthError(ErrorInvalidScope, "selected scopes are invalid", 400, err)
 	}
 	if in.Decision == ConsentDecisionApprove && !selected.IsSubsetOf(consent.AllowedScopes) {
+		e.auditDenied(ctx, "decide_consent", "scope_not_allowed", consent.Principal, consent.Client.ID, consent.Resource, selected)
 		return DecideConsentResult{}, oauthError(ErrorInvalidScope, "selected scopes are not allowed", 400, ErrInvalid)
 	}
 	var code *AuthorizationCodeRecord[A]
@@ -284,12 +309,14 @@ func (e *Engine[A]) DecideConsent(ctx context.Context, in DecideConsentInput) (D
 	if in.Decision == ConsentDecisionApprove {
 		rawCode, err = e.deps.Secrets.NewAuthorizationCode()
 		if err != nil {
+			e.auditError(ctx, "decide_consent", "secret_generation", consent.Principal.Subject, consent.Client.ID, consent.Resource, selected, err)
 			return DecideConsentResult{}, oauthError(ErrorTemporary, "could not create authorization code", 503, err)
 		}
 		code = &AuthorizationCodeRecord[A]{Digest: DigestCredential(string(rawCode)), ClientID: consent.Client.ID, RedirectURI: consent.Client.RedirectURI, PKCEChallenge: consent.PKCEChallenge, Principal: consent.Principal, Scopes: selected, Resource: consent.Resource, State: consent.State, AuthorizationEnds: consent.AuthorizationEnds, ExpiresAt: e.now().Add(e.config.CodeTTL)}
 	}
 	result, err := e.deps.Store.CommitConsent(ctx, ConsentCommit[A]{ConsentDigest: DigestCredential(string(in.Token)), Code: valueOrEmpty(code), Decision: in.Decision}, e.config.StatePolicy)
 	if err != nil {
+		e.auditError(ctx, "decide_consent", storeReasonCode(err), consent.Principal.Subject, consent.Client.ID, consent.Resource, selected, err)
 		return DecideConsentResult{}, mapStoreError(err, ErrorInvalidGrant)
 	}
 	redirect, err := redirectResult(consent.Client.RedirectURI, consent.State, in.Decision, string(rawCode))
@@ -308,37 +335,46 @@ func (e *Engine[A]) DecideConsent(ctx context.Context, in DecideConsentInput) (D
 func (e *Engine[A]) ExchangeCode(ctx context.Context, in ExchangeCodeInput) (TokenResponse, error) {
 	clientID, err := NewClientID(in.ClientID)
 	if err != nil || in.Code == "" {
+		e.auditDenied(ctx, "exchange_code", "invalid_request", Principal[A]{}, "", "", ScopeSet{})
 		return TokenResponse{}, invalidGrant(err)
 	}
 	redirect, err := NewRedirectURI(in.RedirectURI)
 	if err != nil {
+		e.auditDenied(ctx, "exchange_code", "invalid_redirect_uri", Principal[A]{}, clientID, "", ScopeSet{})
 		return TokenResponse{}, invalidGrant(err)
 	}
 	if err := ValidatePKCEVerifier(in.CodeVerifier); err != nil {
+		e.auditDenied(ctx, "exchange_code", "invalid_pkce", Principal[A]{}, clientID, "", ScopeSet{})
 		return TokenResponse{}, invalidGrant(err)
 	}
 	code, err := e.deps.Store.GetCodeForExchange(ctx, CodeExchangeBinding{Digest: DigestCredential(in.Code), ClientID: clientID, RedirectURI: redirect, CodeVerifier: in.CodeVerifier})
 	if err != nil {
+		e.auditDenied(ctx, "exchange_code", storeReasonCode(err), Principal[A]{}, clientID, "", ScopeSet{})
 		return TokenResponse{}, invalidGrant(err)
 	}
 	if e.now().After(code.ExpiresAt) || code.PKCEChallenge.Verify(in.CodeVerifier) != nil {
+		e.auditDenied(ctx, "exchange_code", "store_expired", code.Principal, code.ClientID, code.Resource, code.Scopes)
 		return TokenResponse{}, invalidGrant(ErrBinding)
 	}
 	now := e.now()
 	access, err := e.deps.Tokens.IssueAccessToken(ctx, AccessGrant[A]{Principal: code.Principal, ClientID: code.ClientID, Resource: code.Resource, Scopes: code.Scopes, IssuedAt: now, ExpiresAt: now.Add(e.config.AccessTTL)})
 	if err != nil {
+		e.auditError(ctx, "exchange_code", "token_issuance", code.Principal.Subject, code.ClientID, code.Resource, code.Scopes, err)
 		return TokenResponse{}, oauthError(ErrorTemporary, "could not issue access token", 503, err)
 	}
 	refresh, err := e.deps.Secrets.NewRefreshToken()
 	if err != nil {
+		e.auditError(ctx, "exchange_code", "secret_generation", code.Principal.Subject, code.ClientID, code.Resource, code.Scopes, err)
 		return TokenResponse{}, oauthError(ErrorTemporary, "could not issue refresh token", 503, err)
 	}
 	family, err := e.deps.Secrets.NewRefreshFamilyID()
 	if err != nil {
+		e.auditError(ctx, "exchange_code", "secret_generation", code.Principal.Subject, code.ClientID, code.Resource, code.Scopes, err)
 		return TokenResponse{}, oauthError(ErrorTemporary, "could not issue refresh grant", 503, err)
 	}
 	grant := &RefreshGrant[A]{Digest: DigestCredential(string(refresh)), FamilyID: family, Generation: 0, ClientID: code.ClientID, Principal: code.Principal, Scopes: code.Scopes, Resource: code.Resource, ExpiresAt: code.AuthorizationEnds}
 	if err := e.deps.Store.CommitCodeExchange(ctx, CodeExchangeCommit[A]{CodeDigest: code.Digest, Refresh: grant}, e.config.StatePolicy); err != nil {
+		e.auditError(ctx, "exchange_code", storeReasonCode(err), code.Principal.Subject, code.ClientID, code.Resource, code.Scopes, err)
 		return TokenResponse{}, mapStoreError(err, ErrorInvalidGrant)
 	}
 	e.audit(ctx, "exchange_code", "success", code.Principal, code.ClientID, code.Resource, code.Scopes, "")
@@ -359,18 +395,22 @@ type RefreshInput struct{ RefreshToken, ClientID string }
 func (e *Engine[A]) Refresh(ctx context.Context, in RefreshInput) (TokenResponse, error) {
 	clientID, err := NewClientID(in.ClientID)
 	if err != nil || in.RefreshToken == "" {
+		e.auditDenied(ctx, "refresh", "invalid_request", Principal[A]{}, "", "", ScopeSet{})
 		return TokenResponse{}, invalidGrant(err)
 	}
 	grant, err := e.deps.Store.GetRefreshGrant(ctx, DigestCredential(in.RefreshToken))
 	if err != nil {
+		e.auditDenied(ctx, "refresh", storeReasonCode(err), Principal[A]{}, clientID, "", ScopeSet{})
 		return TokenResponse{}, invalidGrant(err)
 	}
 	now := e.now()
 	if !grant.RevokedAt.IsZero() || now.After(grant.ExpiresAt) || grant.ClientID != clientID {
+		e.auditDenied(ctx, "refresh", "store_revoked", grant.Principal, grant.ClientID, grant.Resource, grant.Scopes)
 		return TokenResponse{}, invalidGrant(ErrBinding)
 	}
 	if !grant.ConsumedAt.IsZero() {
 		if err := e.deps.Store.RevokeRefreshFamily(ctx, grant.FamilyID, now); err != nil {
+			e.auditError(ctx, "refresh", "store_error", grant.Principal.Subject, grant.ClientID, grant.Resource, grant.Scopes, err)
 			return TokenResponse{}, oauthError(ErrorTemporary, "refresh replay revocation could not be persisted", 503, err)
 		}
 		e.audit(ctx, "refresh", "revoked", grant.Principal, grant.ClientID, grant.Resource, grant.Scopes, "refresh_replay")
@@ -378,43 +418,53 @@ func (e *Engine[A]) Refresh(ctx context.Context, in RefreshInput) (TokenResponse
 	}
 	revalidation, err := e.deps.Revalidator.Revalidate(ctx, grant.Principal.Subject)
 	if err != nil {
+		e.auditError(ctx, "refresh", "identity_revalidation", grant.Principal.Subject, grant.ClientID, grant.Resource, grant.Scopes, err)
 		return TokenResponse{}, oauthError(ErrorTemporary, "identity could not be revalidated", 503, err)
 	}
 	switch revalidation.Status {
 	case RevalidationUnknown:
+		e.auditError(ctx, "refresh", "identity_revalidation", grant.Principal.Subject, grant.ClientID, grant.Resource, grant.Scopes, ErrInvalid)
 		return TokenResponse{}, oauthError(ErrorTemporary, "identity could not be revalidated", 503, ErrInvalid)
 	case RevalidationIneligible:
 		if err := e.deps.Store.RevokeRefreshFamily(ctx, grant.FamilyID, now); err != nil {
+			e.auditError(ctx, "refresh", "store_error", grant.Principal.Subject, grant.ClientID, grant.Resource, grant.Scopes, err)
 			return TokenResponse{}, oauthError(ErrorTemporary, "identity revocation could not be persisted", 503, err)
 		}
 		e.audit(ctx, "refresh", "revoked", grant.Principal, grant.ClientID, grant.Resource, grant.Scopes, "principal_ineligible")
 		return TokenResponse{}, invalidGrant(ErrRevoked)
 	case RevalidationEligible:
 		if revalidation.Principal.Subject == "" || revalidation.Principal.Subject != grant.Principal.Subject {
+			e.auditDenied(ctx, "refresh", "subject_mismatch", grant.Principal, grant.ClientID, grant.Resource, grant.Scopes)
 			return TokenResponse{}, oauthError(ErrorTemporary, "identity could not be revalidated", 503, ErrBinding)
 		}
 	default:
+		e.auditError(ctx, "refresh", "identity_revalidation", grant.Principal.Subject, grant.ClientID, grant.Resource, grant.Scopes, ErrInvalid)
 		return TokenResponse{}, oauthError(ErrorTemporary, "identity could not be revalidated", 503, ErrInvalid)
 	}
 	resource, err := e.deps.Resources.LookupResource(ctx, grant.Resource)
 	if err != nil {
+		e.auditDenied(ctx, "refresh", "resource_not_supported", grant.Principal, grant.ClientID, grant.Resource, grant.Scopes)
 		return TokenResponse{}, invalidGrant(err)
 	}
 	available, err := e.deps.Scopes.AvailableScopes(ctx, revalidation.Principal, resource)
 	if err != nil {
+		e.auditError(ctx, "refresh", "scope_policy", grant.Principal.Subject, grant.ClientID, grant.Resource, grant.Scopes, err)
 		return TokenResponse{}, oauthError(ErrorTemporary, "could not determine permissions", 503, err)
 	}
 	nextScopes := grant.Scopes.Intersect(available)
 	access, err := e.deps.Tokens.IssueAccessToken(ctx, AccessGrant[A]{Principal: revalidation.Principal, ClientID: grant.ClientID, Resource: grant.Resource, Scopes: nextScopes, IssuedAt: now, ExpiresAt: now.Add(e.config.AccessTTL)})
 	if err != nil {
+		e.auditError(ctx, "refresh", "token_issuance", grant.Principal.Subject, grant.ClientID, grant.Resource, nextScopes, err)
 		return TokenResponse{}, oauthError(ErrorTemporary, "could not issue access token", 503, err)
 	}
 	nextToken, err := e.deps.Secrets.NewRefreshToken()
 	if err != nil {
+		e.auditError(ctx, "refresh", "secret_generation", grant.Principal.Subject, grant.ClientID, grant.Resource, nextScopes, err)
 		return TokenResponse{}, oauthError(ErrorTemporary, "could not issue refresh token", 503, err)
 	}
 	successor := RefreshGrant[A]{Digest: DigestCredential(string(nextToken)), FamilyID: grant.FamilyID, Generation: grant.Generation + 1, ClientID: grant.ClientID, Principal: revalidation.Principal, Scopes: nextScopes, Resource: grant.Resource, ExpiresAt: grant.ExpiresAt}
 	if err := e.deps.Store.CommitRefreshRotation(ctx, RefreshRotation[A]{CurrentDigest: grant.Digest, FamilyID: grant.FamilyID, Generation: grant.Generation, Successor: successor}, e.config.StatePolicy); err != nil {
+		e.auditError(ctx, "refresh", storeReasonCode(err), grant.Principal.Subject, grant.ClientID, grant.Resource, nextScopes, err)
 		return TokenResponse{}, mapStoreError(err, ErrorInvalidGrant)
 	}
 	e.audit(ctx, "refresh", "success", revalidation.Principal, grant.ClientID, grant.Resource, nextScopes, "")
@@ -433,9 +483,11 @@ func (e *Engine[A]) Revoke(ctx context.Context, in RevokeInput) error {
 		return nil
 	}
 	if err != nil {
+		e.auditError(ctx, "revoke", "store_error", "", clientID, "", ScopeSet{}, err)
 		return err
 	}
 	if err := e.deps.Store.RevokeRefreshFamily(ctx, grant.FamilyID, e.now()); err != nil {
+		e.auditError(ctx, "revoke", storeReasonCode(err), grant.Principal.Subject, grant.ClientID, grant.Resource, grant.Scopes, err)
 		return err
 	}
 	e.audit(ctx, "revoke", "success", grant.Principal, grant.ClientID, grant.Resource, grant.Scopes, "")
@@ -486,8 +538,13 @@ func (e *Engine[A]) audit(ctx context.Context, operation, outcome string, princi
 	e.deps.Audit.Record(ctx, AuditEvent{Time: e.now(), Operation: operation, Outcome: outcome, Subject: principal.Subject, ClientID: client, Resource: resource, Scopes: scopes, ReasonCode: reason})
 }
 
-func (e *Engine[A]) auditError(ctx context.Context, operation, reason string, client ClientID, resource ResourceID, scopes ScopeSet, cause error) {
-	e.deps.Audit.Record(ctx, AuditEvent{Time: e.now(), Operation: operation, Outcome: "error", ClientID: client, Resource: resource, Scopes: scopes, ReasonCode: reason, Cause: cause})
+// auditDenied records an expected client-caused denial without an internal cause.
+func (e *Engine[A]) auditDenied(ctx context.Context, operation, reason string, principal Principal[A], client ClientID, resource ResourceID, scopes ScopeSet) {
+	e.deps.Audit.Record(ctx, AuditEvent{Time: e.now(), Operation: operation, Outcome: "denied", Subject: principal.Subject, ClientID: client, Resource: resource, Scopes: scopes, ReasonCode: reason})
+}
+
+func (e *Engine[A]) auditError(ctx context.Context, operation, reason string, subject Subject, client ClientID, resource ResourceID, scopes ScopeSet, cause error) {
+	e.deps.Audit.Record(ctx, AuditEvent{Time: e.now(), Operation: operation, Outcome: "error", Subject: subject, ClientID: client, Resource: resource, Scopes: scopes, ReasonCode: reason, Cause: cause})
 }
 
 func storeReasonCode(err error) string {
