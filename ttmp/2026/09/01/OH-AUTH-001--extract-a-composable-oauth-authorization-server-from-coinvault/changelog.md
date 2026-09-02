@@ -216,3 +216,13 @@ Step 23 follow-up: Increased CoinVault CI lint timeout after a zero-issue analys
 ### Related Files
 
 - /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../coinvault/.github/workflows/lint.yml — Allows complete CI analysis without changing lint policy
+
+## 2026-09-01
+
+Step 24: Resolved OH Auth and go-go-mcp review findings, advanced CoinVault to exact corrected revisions, and verified all five CoinVault review findings remain covered (71a304c, d3b9e26, d4b6cac).
+
+### Related Files
+
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../coinvault/go.mod — Consume reviewed dependency heads
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/../go-go-mcp/pkg/embeddable/command.go — Preserve custom verifier across CLI defaults
+- /home/manuel/workspaces/2026-08-28/coinvault-oidc-mcp/oh-auth/pkg/jwttokens/service.go — Reject malformed verification keys

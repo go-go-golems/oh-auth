@@ -27,7 +27,9 @@ RelatedFiles:
     - Path: repo://pkg/httptransport/server_test.go
       Note: Regression coverage for review findings
     - Path: repo://pkg/jwttokens/service.go
-      Note: Fixed-trust JWT issuer/verifier (commit 5e00283)
+      Note: |-
+        Fixed-trust JWT issuer/verifier (commit 5e00283)
+        Nil-modulus trust validation review fix
     - Path: repo://pkg/memorytest/store.go
       Note: Deterministic atomic store fixture (commit 523eeea)
     - Path: repo://pkg/oauthresource/doc.go
@@ -56,14 +58,19 @@ RelatedFiles:
       Note: Reproducible OWASP source download and checksum workflow
     - Path: repo://ttmp/2026/09/01/OH-AUTH-001--extract-a-composable-oauth-authorization-server-from-coinvault/sources/owasp/README.md
       Note: Evidence manifest used for the OWASP review
+    - Path: ws://coinvault/go.mod
+      Note: Exact consumer revisions for reviewed fixes
     - Path: ws://coinvault/internal/mcpoauth/provider.go
       Note: Main evidence for concern coupling and transition extraction
+    - Path: ws://go-go-mcp/pkg/embeddable/command.go
+      Note: Custom verifier CLI startup review fix
 ExternalSources: []
 Summary: Chronological evidence, design choices, and delivery record for extracting CoinVault OAuth into oh-auth.
 LastUpdated: 2026-09-01T15:40:00-04:00
 WhatFor: Preserve how the extraction boundary and composable API were derived from CoinVault, go-go-mcp, the review hardenings, and the new repository.
 WhenToUse: Read before implementing or resuming OH-AUTH-001.
 ---
+
 
 
 
@@ -1849,3 +1856,77 @@ The implementation work is complete through deterministic integration. Tagged re
 - go-go-mcp head: `03360e4eb25ea0409ff19c602fca594c33cc9405`.
 - CoinVault head: `5cd8634edfa71d4e216c5aae72aab4d18df143a7`.
 - Final smoke remains intentionally unexecuted.
+
+## Step 24: Resolve final library review findings and verify CoinVault coverage
+
+This step closed the two new upstream review findings with focused regression tests. It then advanced CoinVault to the corrected pseudo-versions and audited every existing CoinVault review finding against current code and tests.
+
+The review fixes preserve fail-closed startup behavior: malformed RSA trust material returns a configuration error, and the normal MCP CLI start path no longer disables an application-owned verifier through an unchanged default flag.
+
+### Prompt Context
+
+**User prompt (verbatim):** "Address code review comments in https://github.com/go-go-golems/oh-auth/pull/4 and https://github.com/go-go-golems/go-go-mcp/pull/83 \n\nAnd then check that https://github.com/goldeneagle/coinvault/pull/13 is indeed covered now."
+
+**Assistant interpretation:** Fix both active review comments, test and publish the corrections, then verify all CoinVault review findings remain resolved with the corrected dependencies.
+
+**Inferred user intent:** Ensure the three-PR dependency chain is review-complete before release.
+
+**Commit (code):** `71a304c7cd457df8d0f96c85bc6a8a8e4bd554fd` — "fix: reject malformed JWT verification keys"
+
+**Commit (code):** `d3b9e26b23c8c32ecf8b704f6bd9fd68d137d845` — "fix: preserve custom verifier during CLI startup"
+
+**Commit (consumer):** `d4b6cac6388fa0ba7d47a37d21037bef61f52e73` — "chore: consume OAuth review fixes"
+
+### What I did
+
+- Guarded both OH Auth verification-key ingestion paths against a nil RSA modulus and added a malformed-key regression test.
+- Preserved go-go-mcp's custom verifier when the CLI auth-mode flag remains unchanged; explicit auth flags still replace it.
+- Added a regression test that executes the real `NewMCPCommand start` path through the startup hook.
+- Updated CoinVault to consume both corrected revisions.
+- Audited all five CoinVault review findings against current implementation and tests, posted the evidence to PR #13, replied to both upstream threads, and resolved them.
+
+### Why
+
+- Public constructors must reject malformed trust material rather than panic.
+- Default CLI processing must not silently remove application-configured bearer enforcement.
+- CoinVault must consume the reviewed dependency heads for its integration evidence to be meaningful.
+
+### What worked
+
+- OH Auth normal, race, vet, and lint gates passed with `GOWORK=off`.
+- go-go-mcp full normal tests, focused embeddable race tests, vet, and lint passed with `GOWORK=off`.
+- CoinVault focused normal/race/vet suites and its complete pre-push frontend, test, lint, custom-vet, GoSec, and govulncheck pipeline passed.
+- The CoinVault audit confirmed session-ledger isolation, canonical `/mcp`, consent destination disclosure, transient revalidation preservation, and bounded registration persistence.
+
+### What didn't work
+
+- N/A.
+
+### What I learned
+
+- CLI option defaults are behavior, not only presentation: replaying `none` into an already configured runtime can remove a security boundary.
+- Consumer coverage must be checked against exact dependency revisions, not only source code present in a workspace.
+
+### What was tricky to build
+
+- The CLI must distinguish an unchanged default `--auth-mode=none` from an explicit auth-mode choice. The fix uses Cobra's `Flag.Changed` state: unchanged defaults preserve the custom verifier, while explicit flags retain replacement semantics.
+
+### What warrants a second pair of eyes
+
+- Confirm explicit `--auth-mode=none` is the desired operator mechanism for replacing an application verifier; the current behavior is deliberate and tested indirectly through existing replacement semantics.
+- Review CoinVault's final tag pin after both upstream PRs are released.
+
+### What should be done in the future
+
+- Merge and tag OH Auth and go-go-mcp, replace CoinVault pseudo-versions with tags, deploy, and run the one planned smoke.
+
+### Code review instructions
+
+- Start at `pkg/jwttokens/service.go` and `pkg/embeddable/command.go`, then inspect their new regression tests.
+- Verify CoinVault `go.mod` points to `71a304c` and `d3b9e26` and run the complete pre-push gate with `GOWORK=off`.
+
+### Technical details
+
+- OH Auth review thread `3909354960`: resolved.
+- go-go-mcp review thread `3909364976`: resolved.
+- CoinVault coverage evidence: `https://github.com/goldeneagle/coinvault/pull/13#issuecomment-5503051940`.
