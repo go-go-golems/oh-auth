@@ -53,6 +53,7 @@ func (s *Server[A]) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("/oauth/register", s.correlated(s.register))
 	mux.HandleFunc("/oauth/authorize", s.correlated(s.authorize))
 	mux.HandleFunc("/oauth/consent", s.correlated(s.consent))
+	mux.HandleFunc("/oauth/consent.css", s.correlated(s.consentCSS))
 	mux.HandleFunc("/oauth/token", s.correlated(s.token))
 	mux.HandleFunc("/oauth/revoke", s.correlated(s.revoke))
 }
@@ -191,13 +192,26 @@ func (s *Server[A]) consentGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+	// form-action also governs redirects after form submission in browsers.
+	// Consent may redirect only to the origin snapshotted from the validated,
+	// registered redirect URI; never interpolate request input here.
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; form-action 'self' "+view.RedirectOrigin+"; frame-ancestors 'none'; base-uri 'none'")
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	if err := s.consentTemplate.Execute(w, view); err != nil {
 		return
 	}
 }
+func (s *Server[A]) consentCSS(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		s.method(w, http.MethodGet)
+		return
+	}
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	_, _ = io.WriteString(w, consentStyles)
+}
+
 func (s *Server[A]) consentPost(w http.ResponseWriter, r *http.Request) {
 	s.headers(w)
 	if r.Method != http.MethodPost {
@@ -447,4 +461,13 @@ func serverOAuthError(code oauthserver.ErrorCode, description string, status int
 	return &oauthserver.OAuthError{Code: code, SafeDescription: description, HTTPStatus: status, Cause: cause}
 }
 
-const consentPage = `<!doctype html><html><head><meta charset="utf-8"><title>Authorize</title></head><body><main><h1>Authorize {{.ClientName}}</h1><p>{{.PrincipalName}} ({{.PrincipalEmail}})</p><p>{{.ResourceName}}</p><p>Destination: <code>{{.RedirectURI}}</code></p><p>Client trust: {{.ClientTrust}}</p><p>Access-token lifetime: {{.AccessTokenTTL}}</p><p>Authorization ends: {{.AuthorizationEnds}}</p><form method="post" action="/oauth/consent"><input type="hidden" name="token" value="{{.Token}}">{{range .Scopes}}<label><input type="checkbox" name="scope" value="{{.Scope}}" checked>{{.Scope}}</label>{{end}}<button name="decision" value="approve" type="submit">Approve</button><button name="decision" value="deny" type="submit">Deny</button></form></main></body></html>`
+const consentPage = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Authorize CoinVault</title><link rel="stylesheet" href="/oauth/consent.css"></head>
+<body><main class="shell"><section class="card"><header class="brand"><span class="mark">CV</span><span><strong>CoinVault</strong><small>Secure connector authorization</small></span></header>
+<div class="intro"><p class="eyebrow">Authorization request</p><h1>Connect {{.ClientName}}</h1><p class="lede">Review the access this connector is requesting from {{.ResourceName}}.</p></div>
+<div class="identity"><span class="avatar">ID</span><span><strong>{{.PrincipalName}}</strong><small>{{.PrincipalEmail}}</small></span></div>
+<form method="post" action="/oauth/consent"><input type="hidden" name="token" value="{{.Token}}"><fieldset><legend>Requested access</legend><div class="scopes">{{range .Scopes}}<label class="scope"><input type="checkbox" name="scope" value="{{.Scope}}" checked><span><strong>{{.Scope}}</strong><small>Grant this capability to the connector</small></span></label>{{end}}</div></fieldset>
+<dl class="details"><div><dt>Destination</dt><dd>{{.RedirectOrigin}}</dd></div><div><dt>Client trust</dt><dd>{{.ClientTrust}}</dd></div><div><dt>Access token</dt><dd>{{.AccessTokenTTL}}</dd></div><div><dt>Authorization ends</dt><dd>{{.AuthorizationEnds}}</dd></div></dl>
+<div class="actions"><button class="approve" name="decision" value="approve" type="submit">Approve connection</button><button class="deny" name="decision" value="deny" type="submit">Deny</button></div></form><footer>Only the selected scopes will be granted. You can revoke access later.</footer></section></main></body></html>`
+
+const consentStyles = `:root{color-scheme:dark;--bg:#090a0c;--panel:#121418;--line:#2a2d33;--muted:#9a9fa9;--text:#f4f2eb;--gold:#d7aa45;--gold2:#f0cd72;--danger:#d36b67}*{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 50% -20%,#262019 0,#0d0e11 42%,var(--bg) 75%);color:var(--text);font:15px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.shell{min-height:100vh;display:grid;place-items:center;padding:32px 16px}.card{width:min(620px,100%);background:linear-gradient(180deg,#17191e,var(--panel));border:1px solid #33363d;border-radius:18px;box-shadow:0 24px 80px #0009;overflow:hidden}.brand{display:flex;align-items:center;gap:12px;padding:20px 24px;border-bottom:1px solid var(--line)}.brand span:last-child,.identity span:last-child{display:flex;flex-direction:column}.brand small,.identity small{color:var(--muted)}.mark,.avatar{display:grid;place-items:center;flex:0 0 auto;width:42px;height:42px;border-radius:12px;background:linear-gradient(145deg,var(--gold2),#9b6b16);color:#171006;font-weight:900;letter-spacing:-.04em}.intro{padding:28px 28px 12px}.eyebrow{margin:0 0 5px;color:var(--gold2);font-size:12px;font-weight:750;letter-spacing:.13em;text-transform:uppercase}h1{margin:0;font-size:clamp(26px,5vw,36px);line-height:1.15;letter-spacing:-.035em}.lede{color:#c2c5cc;margin:12px 0 0}.identity{display:flex;align-items:center;gap:12px;margin:12px 28px 24px;padding:14px;border:1px solid var(--line);border-radius:12px;background:#0d0f12}.avatar{width:38px;height:38px;border-radius:50%;text-transform:uppercase}form{padding:0 28px 28px}fieldset{padding:0;border:0}legend{margin-bottom:10px;font-size:13px;font-weight:700;color:#d8d9dc}.scopes{display:grid;gap:8px}.scope{display:flex;align-items:flex-start;gap:12px;padding:13px 14px;border:1px solid var(--line);border-radius:10px;background:#0e1013;cursor:pointer}.scope:has(input:checked){border-color:#705a2b;background:#18150f}.scope input{margin-top:4px;accent-color:var(--gold)}.scope span{display:flex;min-width:0;flex-direction:column}.scope strong{overflow-wrap:anywhere;font-size:13px}.scope small{color:var(--muted)}.details{display:grid;gap:8px;margin:22px 0;padding-top:18px;border-top:1px solid var(--line)}.details div{display:flex;justify-content:space-between;gap:20px}.details dt{color:var(--muted)}.details dd{margin:0;max-width:65%;overflow-wrap:anywhere;text-align:right}.actions{display:flex;gap:10px}.actions button{border-radius:10px;padding:12px 18px;font:inherit;font-weight:750;cursor:pointer}.approve{flex:1;border:1px solid #e4bb5d;background:linear-gradient(180deg,var(--gold2),var(--gold));color:#1b1408}.approve:hover{filter:brightness(1.08)}.deny{border:1px solid #42464f;background:#1b1e23;color:#ddd}.deny:hover{border-color:var(--danger);color:#ffd5d2}footer{padding:15px 28px;border-top:1px solid var(--line);color:var(--muted);font-size:12px;text-align:center}@media(max-width:520px){.shell{padding:0}.card{min-height:100vh;border:0;border-radius:0}.intro,.identity,form{margin-left:18px;margin-right:18px;padding-left:0;padding-right:0}.details div{display:block}.details dd{max-width:none;text-align:left}.actions{flex-direction:column}.deny{order:-1}}`

@@ -62,8 +62,16 @@ func TestHTTPAuthorizationCodeRefreshAndRevokeFlow(t *testing.T) {
 	callback := request(t, mux, http.MethodGet, "/callback?transaction="+url.QueryEscape(transaction), "", "")
 	consentURL := parseLocation(t, callback)
 	consentPage := request(t, mux, http.MethodGet, consentURL.RequestURI(), "", "")
-	if consentPage.Code != http.StatusOK || !strings.Contains(consentPage.Body.String(), "Authorize flow") {
+	if consentPage.Code != http.StatusOK || !strings.Contains(consentPage.Body.String(), "Connect flow") || !strings.Contains(consentPage.Body.String(), "/oauth/consent.css") {
 		t.Fatalf("consent page = %d %s", consentPage.Code, consentPage.Body.String())
+	}
+	csp := consentPage.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "form-action 'self' https://client.example.test") {
+		t.Fatalf("consent CSP does not allow validated callback origin: %q", csp)
+	}
+	stylesheet := request(t, mux, http.MethodGet, "/oauth/consent.css", "", "")
+	if stylesheet.Code != http.StatusOK || !strings.HasPrefix(stylesheet.Header().Get("Content-Type"), "text/css") || !strings.Contains(stylesheet.Body.String(), "--gold") {
+		t.Fatalf("consent stylesheet = %d %q", stylesheet.Code, stylesheet.Header().Get("Content-Type"))
 	}
 
 	consentValues := url.Values{"token": {consentURL.Query().Get("token")}, "decision": {"approve"}, "scope": {"read"}}
