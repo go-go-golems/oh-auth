@@ -22,7 +22,7 @@ func TestDiagnosticsSmoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if diagnostics.SchemaVersion != 1 || diagnostics.JournalMode != "wal" || !diagnostics.ForeignKeys || diagnostics.BusyTimeoutMs != 5000 {
+	if diagnostics.SchemaVersion != 2 || diagnostics.JournalMode != "wal" || !diagnostics.ForeignKeys || diagnostics.BusyTimeoutMs != 5000 {
 		t.Fatalf("unexpected diagnostics: %+v", diagnostics)
 	}
 	if diagnostics.Counts.Clients != 1 || !diagnostics.WriteProbeOK || diagnostics.DatabaseBytes == 0 {

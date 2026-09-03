@@ -143,16 +143,109 @@ CREATE INDEX oauth_consents_expiry_idx ON oauth_consents(json_extract(payload, '
 CREATE INDEX oauth_codes_expiry_idx ON oauth_codes(json_extract(payload, '$.record.ExpiresAt'));
 `)
 	if err != nil {
+		return fmt.Errorf("initialize sqlite schema: %w", err)
+	}
+	if err := s.migrate(ctx); err != nil {
 		return fmt.Errorf("migrate sqlite: %w", err)
 	}
+	return nil
+}
+
+const currentSchemaVersion = 2
+
+// migrate upgrades durable schemas without replacing the database. Version 1
+// databases predate oauth_clients.last_used_at; that column is added and
+// existing clients are initialized from created_at before the version marker
+// is advanced. The migration is transactional and safe to run repeatedly.
+func (s *Store[A]) migrate(ctx context.Context) error {
 	var count, minimum, maximum int
 	if err := s.db.QueryRowContext(ctx, "SELECT COUNT(*), COALESCE(MIN(version),0), COALESCE(MAX(version),0) FROM oauth_schema_version").Scan(&count, &minimum, &maximum); err != nil {
 		return fmt.Errorf("read sqlite schema version: %w", err)
 	}
-	if count != 1 || minimum != 1 || maximum != 1 {
+	if count != 1 || minimum < 1 || maximum < minimum {
 		return fmt.Errorf("unsupported sqlite schema version state: count=%d min=%d max=%d", count, minimum, maximum)
 	}
+	if maximum > currentSchemaVersion {
+		return fmt.Errorf("unsupported sqlite schema version state: count=%d min=%d max=%d", count, minimum, maximum)
+	}
+	if maximum == currentSchemaVersion {
+		if err := s.requireColumn(ctx, "oauth_clients", "last_used_at"); err != nil {
+			return err
+		}
+		return nil
+	}
+	if maximum != 1 {
+		return fmt.Errorf("unsupported sqlite schema version state: count=%d min=%d max=%d", count, minimum, maximum)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin schema migration: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = tx.Rollback()
+		}
+	}()
+	hasColumn, err := txHasColumn(ctx, tx, "oauth_clients", "last_used_at")
+	if err != nil {
+		return fmt.Errorf("inspect oauth_clients columns: %w", err)
+	}
+	if !hasColumn {
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE oauth_clients ADD COLUMN last_used_at TEXT"); err != nil {
+			return fmt.Errorf("add oauth_clients.last_used_at: %w", err)
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE oauth_clients SET last_used_at = created_at WHERE last_used_at IS NULL"); err != nil {
+			return fmt.Errorf("backfill oauth_clients.last_used_at: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE oauth_schema_version SET version = ? WHERE version = 1", currentSchemaVersion); err != nil {
+		return fmt.Errorf("advance sqlite schema version: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit schema migration: %w", err)
+	}
+	committed = true
 	return nil
+}
+
+func (s *Store[A]) requireColumn(ctx context.Context, table, column string) error {
+	hasColumn, err := txHasColumn(ctx, s.db, table, column)
+	if err != nil {
+		return fmt.Errorf("inspect %s columns: %w", table, err)
+	}
+	if !hasColumn {
+		return fmt.Errorf("schema version %d is missing %s.%s", currentSchemaVersion, table, column)
+	}
+	return nil
+}
+
+type queryer interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+func txHasColumn(ctx context.Context, queryer queryer, table, column string) (bool, error) {
+	rows, err := queryer.QueryContext(ctx, "PRAGMA table_info("+table+")")
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 func (s *Store[A]) RegisterClient(ctx context.Context, client oauthserver.Client, policy oauthserver.StatePolicy) error {
