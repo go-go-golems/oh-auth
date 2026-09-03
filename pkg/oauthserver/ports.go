@@ -46,6 +46,7 @@ type AuditEvent struct {
 	Resource   ResourceID
 	Scopes     ScopeSet
 	ReasonCode string
+	RequestID  string
 	// Cause is available only to the in-process audit sink for diagnostics. Sinks
 	// must never serialize credentials, request bodies, or authorization headers.
 	Cause error

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"net/url"
 	"time"
+
+	"github.com/go-go-golems/oh-auth/pkg/correlation"
 )
 
 type Dependencies[A any] struct {
@@ -535,16 +537,16 @@ func valueOrEmpty[A any](value *AuthorizationCodeRecord[A]) AuthorizationCodeRec
 }
 
 func (e *Engine[A]) audit(ctx context.Context, operation, outcome string, principal Principal[A], client ClientID, resource ResourceID, scopes ScopeSet, reason string) {
-	e.deps.Audit.Record(ctx, AuditEvent{Time: e.now(), Operation: operation, Outcome: outcome, Subject: principal.Subject, ClientID: client, Resource: resource, Scopes: scopes, ReasonCode: reason})
+	e.deps.Audit.Record(ctx, AuditEvent{Time: e.now(), Operation: operation, Outcome: outcome, Subject: principal.Subject, ClientID: client, Resource: resource, Scopes: scopes, ReasonCode: reason, RequestID: correlation.FromContext(ctx)})
 }
 
 // auditDenied records an expected client-caused denial without an internal cause.
 func (e *Engine[A]) auditDenied(ctx context.Context, operation, reason string, principal Principal[A], client ClientID, resource ResourceID, scopes ScopeSet) {
-	e.deps.Audit.Record(ctx, AuditEvent{Time: e.now(), Operation: operation, Outcome: "denied", Subject: principal.Subject, ClientID: client, Resource: resource, Scopes: scopes, ReasonCode: reason})
+	e.deps.Audit.Record(ctx, AuditEvent{Time: e.now(), Operation: operation, Outcome: "denied", Subject: principal.Subject, ClientID: client, Resource: resource, Scopes: scopes, ReasonCode: reason, RequestID: correlation.FromContext(ctx)})
 }
 
 func (e *Engine[A]) auditError(ctx context.Context, operation, reason string, subject Subject, client ClientID, resource ResourceID, scopes ScopeSet, cause error) {
-	e.deps.Audit.Record(ctx, AuditEvent{Time: e.now(), Operation: operation, Outcome: "error", Subject: subject, ClientID: client, Resource: resource, Scopes: scopes, ReasonCode: reason, Cause: cause})
+	e.deps.Audit.Record(ctx, AuditEvent{Time: e.now(), Operation: operation, Outcome: "error", Subject: subject, ClientID: client, Resource: resource, Scopes: scopes, ReasonCode: reason, RequestID: correlation.FromContext(ctx), Cause: cause})
 }
 
 func storeReasonCode(err error) string {
