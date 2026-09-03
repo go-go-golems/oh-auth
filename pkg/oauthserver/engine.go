@@ -160,7 +160,7 @@ func (e *Engine[A]) BeginAuthorization(ctx context.Context, in BeginAuthorizatio
 	}
 	client, err := e.deps.Store.GetClient(ctx, clientID)
 	if err != nil {
-		e.auditDenied(ctx, "begin_authorization", storeReasonCode(err), Principal[A]{}, clientID, resourceID, ScopeSet{})
+		e.auditStoreRead(ctx, "begin_authorization", err, "", clientID, resourceID)
 		return BeginAuthorizationResult{}, invalidArgument("client is invalid", err)
 	}
 	if !containsRedirect(client.RedirectURIs, redirect) {
@@ -211,7 +211,7 @@ func (e *Engine[A]) CompleteLogin(ctx context.Context, in CompleteLoginInput[A])
 	}
 	auth, err := e.deps.Store.GetAuthorization(ctx, DigestCredential(string(in.Transaction)))
 	if err != nil {
-		e.auditDenied(ctx, "complete_login", storeReasonCode(err), in.Principal, "", "", ScopeSet{})
+		e.auditStoreRead(ctx, "complete_login", err, in.Principal.Subject, "", "")
 		return CompleteLoginResult{}, invalidGrant(err)
 	}
 	if e.now().After(auth.ExpiresAt) {
@@ -220,7 +220,11 @@ func (e *Engine[A]) CompleteLogin(ctx context.Context, in CompleteLoginInput[A])
 	}
 	client, err := e.deps.Store.GetClient(ctx, auth.ClientID)
 	if err != nil || !containsRedirect(client.RedirectURIs, auth.RedirectURI) {
-		e.auditDenied(ctx, "complete_login", "store_binding", in.Principal, auth.ClientID, auth.Resource, ScopeSet{})
+		if err != nil && !isExpectedStoreDenial(err) {
+			e.auditError(ctx, "complete_login", storeReasonCode(err), in.Principal.Subject, auth.ClientID, auth.Resource, ScopeSet{}, err)
+		} else {
+			e.auditDenied(ctx, "complete_login", "store_binding", in.Principal, auth.ClientID, auth.Resource, ScopeSet{})
+		}
 		return CompleteLoginResult{}, invalidGrant(err)
 	}
 	resource, err := e.deps.Resources.LookupResource(ctx, auth.Resource)
@@ -286,7 +290,7 @@ type DecideConsentResult struct{ RedirectURI string }
 func (e *Engine[A]) DecideConsent(ctx context.Context, in DecideConsentInput) (DecideConsentResult, error) {
 	consent, err := e.deps.Store.GetConsent(ctx, DigestCredential(string(in.Token)))
 	if err != nil {
-		e.auditDenied(ctx, "decide_consent", storeReasonCode(err), Principal[A]{}, "", "", ScopeSet{})
+		e.auditStoreRead(ctx, "decide_consent", err, "", "", "")
 		return DecideConsentResult{}, invalidGrant(err)
 	}
 	if e.now().After(consent.ExpiresAt) {
@@ -351,11 +355,15 @@ func (e *Engine[A]) ExchangeCode(ctx context.Context, in ExchangeCodeInput) (Tok
 	}
 	code, err := e.deps.Store.GetCodeForExchange(ctx, CodeExchangeBinding{Digest: DigestCredential(in.Code), ClientID: clientID, RedirectURI: redirect, CodeVerifier: in.CodeVerifier})
 	if err != nil {
-		e.auditDenied(ctx, "exchange_code", storeReasonCode(err), Principal[A]{}, clientID, "", ScopeSet{})
+		e.auditStoreRead(ctx, "exchange_code", err, "", clientID, "")
 		return TokenResponse{}, invalidGrant(err)
 	}
-	if e.now().After(code.ExpiresAt) || code.PKCEChallenge.Verify(in.CodeVerifier) != nil {
+	if e.now().After(code.ExpiresAt) {
 		e.auditDenied(ctx, "exchange_code", "store_expired", code.Principal, code.ClientID, code.Resource, code.Scopes)
+		return TokenResponse{}, invalidGrant(ErrExpired)
+	}
+	if code.PKCEChallenge.Verify(in.CodeVerifier) != nil {
+		e.auditDenied(ctx, "exchange_code", "pkce_mismatch", code.Principal, code.ClientID, code.Resource, code.Scopes)
 		return TokenResponse{}, invalidGrant(ErrBinding)
 	}
 	now := e.now()
@@ -402,12 +410,20 @@ func (e *Engine[A]) Refresh(ctx context.Context, in RefreshInput) (TokenResponse
 	}
 	grant, err := e.deps.Store.GetRefreshGrant(ctx, DigestCredential(in.RefreshToken))
 	if err != nil {
-		e.auditDenied(ctx, "refresh", storeReasonCode(err), Principal[A]{}, clientID, "", ScopeSet{})
+		e.auditStoreRead(ctx, "refresh", err, "", clientID, "")
 		return TokenResponse{}, invalidGrant(err)
 	}
 	now := e.now()
-	if !grant.RevokedAt.IsZero() || now.After(grant.ExpiresAt) || grant.ClientID != clientID {
+	if !grant.RevokedAt.IsZero() {
 		e.auditDenied(ctx, "refresh", "store_revoked", grant.Principal, grant.ClientID, grant.Resource, grant.Scopes)
+		return TokenResponse{}, invalidGrant(ErrBinding)
+	}
+	if now.After(grant.ExpiresAt) {
+		e.auditDenied(ctx, "refresh", "store_expired", grant.Principal, grant.ClientID, grant.Resource, grant.Scopes)
+		return TokenResponse{}, invalidGrant(ErrBinding)
+	}
+	if grant.ClientID != clientID {
+		e.auditDenied(ctx, "refresh", "store_binding", grant.Principal, grant.ClientID, grant.Resource, grant.Scopes)
 		return TokenResponse{}, invalidGrant(ErrBinding)
 	}
 	if !grant.ConsumedAt.IsZero() {
@@ -547,6 +563,25 @@ func (e *Engine[A]) auditDenied(ctx context.Context, operation, reason string, p
 
 func (e *Engine[A]) auditError(ctx context.Context, operation, reason string, subject Subject, client ClientID, resource ResourceID, scopes ScopeSet, cause error) {
 	e.deps.Audit.Record(ctx, AuditEvent{Time: e.now(), Operation: operation, Outcome: "error", Subject: subject, ClientID: client, Resource: resource, Scopes: scopes, ReasonCode: reason, RequestID: correlation.FromContext(ctx), Cause: cause})
+}
+
+// auditStoreRead records a store read outcome. Expected state errors such as
+// a missing or consumed record are client-caused denials; unclassified
+// failures (for example SQLite I/O errors) are operational errors and carry
+// the cause so outages do not disappear from server-error metrics.
+func (e *Engine[A]) auditStoreRead(ctx context.Context, operation string, err error, subject Subject, client ClientID, resource ResourceID) {
+	if isExpectedStoreDenial(err) {
+		e.auditDenied(ctx, operation, storeReasonCode(err), Principal[A]{Subject: subject}, client, resource, ScopeSet{})
+		return
+	}
+	e.auditError(ctx, operation, storeReasonCode(err), subject, client, resource, ScopeSet{}, err)
+}
+
+// isExpectedStoreDenial reports whether a store error is an expected
+// client-caused state denial rather than an operational failure. Capacity is
+// deliberately excluded: it is a server-side condition.
+func isExpectedStoreDenial(err error) bool {
+	return errors.Is(err, ErrNotFound) || errors.Is(err, ErrBinding) || errors.Is(err, ErrExpired) || errors.Is(err, ErrConsumed) || errors.Is(err, ErrRevoked) || errors.Is(err, ErrConflict)
 }
 
 func storeReasonCode(err error) string {

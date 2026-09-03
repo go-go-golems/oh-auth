@@ -61,8 +61,10 @@ func newAuditTestEngine(t *testing.T, sink oauthserver.AuditSink) (*oauthserver.
 }
 
 // newAuditTestEngineParts builds a full engine with overridable secrets so
-// tests can force server-side failures (for example secret generation).
-func newAuditTestEngineParts(t *testing.T, sink oauthserver.AuditSink, secrets oauthserver.SecretSource) (*oauthserver.Engine[struct{}], *memorytest.Store[struct{}], oauthserver.Principal[struct{}], string, string) {
+// tests can force server-side failures (for example secret generation). The
+// returned rebuild closure constructs a fresh engine over the same fixtures
+// with a custom store, for testing store read failures.
+func newAuditTestEngineParts(t *testing.T, sink oauthserver.AuditSink, secrets oauthserver.SecretSource) (*oauthserver.Engine[struct{}], *memorytest.Store[struct{}], oauthserver.Principal[struct{}], string, func(oauthserver.Store[struct{}]) *oauthserver.Engine[struct{}]) {
 	t.Helper()
 	scopes, _ := oauthserver.NewScopeSet("documents:read")
 	resourceID := "https://rag.example.test/api"
@@ -75,15 +77,20 @@ func newAuditTestEngineParts(t *testing.T, sink oauthserver.AuditSink, secrets o
 	}
 	principal := oauthserver.Principal[struct{}]{Subject: oauthserver.Subject("employee-1")}
 	revalidator := &memorytest.Revalidator[struct{}]{Result: oauthserver.Revalidation[struct{}]{Status: oauthserver.RevalidationEligible, Principal: principal}}
-	engine, err := oauthserver.New(config, oauthserver.Dependencies[struct{}]{Store: store, Resources: resources, Scopes: memorytest.ScopePolicy[struct{}]{Available: scopes}, Revalidator: revalidator, Tokens: &memorytest.TokenService[struct{}]{Issuer: config.Issuer}, Secrets: secrets, Clock: clock, Audit: sink})
-	if err != nil {
-		t.Fatal(err)
+	newEngine := func(store oauthserver.Store[struct{}]) *oauthserver.Engine[struct{}] {
+		t.Helper()
+		engine, err := oauthserver.New(config, oauthserver.Dependencies[struct{}]{Store: store, Resources: resources, Scopes: memorytest.ScopePolicy[struct{}]{Available: scopes}, Revalidator: revalidator, Tokens: &memorytest.TokenService[struct{}]{Issuer: config.Issuer}, Secrets: secrets, Clock: clock, Audit: sink})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return engine
 	}
+	engine := newEngine(store)
 	clientID := "client-known"
 	if err := store.RegisterClient(context.Background(), oauthserver.Client{ID: oauthserver.ClientID(clientID), DisplayName: "Known", RedirectURIs: []oauthserver.RedirectURI{"https://client.example.test/callback"}, AllowedScopes: scopes, CreatedAt: clock.Now().UTC(), LastUsedAt: clock.Now().UTC()}, config.StatePolicy); err != nil {
 		t.Fatal(err)
 	}
-	return engine, store, principal, resourceID, clientID
+	return engine, store, principal, resourceID, newEngine
 }
 
 func auditTestVerifierChallenge() string {
@@ -125,8 +132,8 @@ func TestAuditDeniedFields(t *testing.T) {
 func TestAuditErrorCarriesTrustedCause(t *testing.T) {
 	ctx := correlation.WithID(context.Background(), "req-87654321")
 	sink := &capturingSink{}
-	engine, _, _, resourceID, clientID := newAuditTestEngineParts(t, sink, failingTransactionSecrets{inner: &memorytest.Secrets{}})
-	_, err := engine.BeginAuthorization(ctx, oauthserver.BeginAuthorizationInput{ClientID: clientID, RedirectURI: "https://client.example.test/callback", ResponseType: "code", State: "state-1", CodeChallenge: auditTestVerifierChallenge(), ChallengeMethod: "S256", Scopes: []string{"documents:read"}, Resource: resourceID})
+	engine, _, _, resourceID, _ := newAuditTestEngineParts(t, sink, failingTransactionSecrets{inner: &memorytest.Secrets{}})
+	_, err := engine.BeginAuthorization(ctx, oauthserver.BeginAuthorizationInput{ClientID: "client-known", RedirectURI: "https://client.example.test/callback", ResponseType: "code", State: "state-1", CodeChallenge: auditTestVerifierChallenge(), ChallengeMethod: "S256", Scopes: []string{"documents:read"}, Resource: resourceID})
 	if err == nil {
 		t.Fatal("expected failure")
 	}
@@ -197,8 +204,43 @@ func TestAuditLifecycleNeverLeaksCredentials(t *testing.T) {
 	}
 }
 
-// TestAuditStoreNotFoundClassification proves the stable reason code
-// classification for missing client state surfaced through authorization.
+// brokenReadStore wraps the memory store and makes client reads fail with an
+// unclassified operational error, as a closed database or SQLite I/O error
+// would in production.
+type brokenReadStore struct {
+	*memorytest.Store[struct{}]
+}
+
+func (s brokenReadStore) GetClient(_ context.Context, _ oauthserver.ClientID) (oauthserver.Client, error) {
+	return oauthserver.Client{}, errors.New("sqlite: disk I/O error")
+}
+
+// TestAuditUnclassifiedStoreReadIsError asserts that operational store read
+// failures (not one of the expected state denials) are recorded as error
+// events with a cause, so outages surface in server-error metrics.
+func TestAuditUnclassifiedStoreReadIsError(t *testing.T) {
+	ctx := correlation.WithID(context.Background(), "req-aaaaaaaa")
+	sink := &capturingSink{}
+	_, store, _, _, newEngine := newAuditTestEngineParts(t, sink, &memorytest.Secrets{})
+	brokenEngine := newEngine(brokenReadStore{Store: store})
+	_, err := brokenEngine.BeginAuthorization(ctx, oauthserver.BeginAuthorizationInput{ClientID: "client-any", RedirectURI: "https://client.example.test/callback", ResponseType: "code", State: "state-1", CodeChallenge: auditTestVerifierChallenge(), ChallengeMethod: "S256", Scopes: []string{"documents:read"}, Resource: "https://rag.example.test/api"})
+	if err == nil {
+		t.Fatal("expected failure")
+	}
+	event := sink.find("begin_authorization", "error")
+	if event == nil {
+		t.Fatalf("expected an error audit event, got %+v", sink.events)
+	}
+	if event.ReasonCode != "store_error" {
+		t.Fatalf("reason code = %q", event.ReasonCode)
+	}
+	if event.Cause == nil || event.Cause.Error() != "sqlite: disk I/O error" {
+		t.Fatalf("cause = %v", event.Cause)
+	}
+	if event.RequestID != "req-aaaaaaaa" {
+		t.Fatalf("request id = %q", event.RequestID)
+	}
+}
 func TestAuditStoreNotFoundClassification(t *testing.T) {
 	ctx := context.Background()
 	sink := &capturingSink{}

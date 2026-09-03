@@ -42,9 +42,6 @@ func New[A any](config Config[A]) (*Server[A], error) {
 }
 
 func (s *Server[A]) correlated(handler http.HandlerFunc) http.HandlerFunc {
-	if s.observer == nil {
-		return handler
-	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		Correlation(handler, s.observer).ServeHTTP(w, r)
 	}

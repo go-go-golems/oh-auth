@@ -90,6 +90,31 @@ func TestCorrelationNilObserver(t *testing.T) {
 	}
 }
 
+// TestServerCorrelationWithoutObserver asserts that mounted OAuth routes
+// always apply correlation even when no RequestObserver is configured: the
+// X-Request-ID header is set and inbound identifiers are honored.
+func TestServerCorrelationWithoutObserver(t *testing.T) {
+	server, _ := newServer(t)
+	if server == nil {
+		t.Fatal("missing server")
+	}
+	mux := http.NewServeMux()
+	server.Mount(mux)
+	first := httptest.NewRequest(http.MethodGet, "https://auth.example.test/jwks.json", nil)
+	firstResponse := httptest.NewRecorder()
+	mux.ServeHTTP(firstResponse, first)
+	if !correlation.ValidID(firstResponse.Header().Get(correlation.Header)) {
+		t.Fatalf("request id = %q", firstResponse.Header().Get(correlation.Header))
+	}
+	second := httptest.NewRequest(http.MethodGet, "https://auth.example.test/jwks.json", nil)
+	second.Header.Set(correlation.Header, "client-trace-42")
+	secondResponse := httptest.NewRecorder()
+	mux.ServeHTTP(secondResponse, second)
+	if got := secondResponse.Header().Get(correlation.Header); got != "client-trace-42" {
+		t.Fatalf("inbound id = %q", got)
+	}
+}
+
 func TestCorrelationObservesStatusAndPath(t *testing.T) {
 	observer := &recordingObserver{}
 	failing := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
