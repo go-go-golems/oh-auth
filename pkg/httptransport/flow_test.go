@@ -21,6 +21,22 @@ func (callbackAuthenticator) AuthenticateCallback(_ context.Context, r *http.Req
 	return transaction, oauthserver.Principal[struct{}]{Subject: "employee-1", DisplayName: "Employee", Email: "employee@example.test"}, err
 }
 
+func TestRegistrationDefaultsOmittedScope(t *testing.T) {
+	server, _ := newServer(t)
+	mux := http.NewServeMux()
+	server.Mount(mux)
+
+	registration := postJSON(t, mux, "/oauth/register", `{"client_name":"scope-default","redirect_uris":["https://client.example.test/callback"]}`)
+	if registration.Code != http.StatusCreated {
+		t.Fatalf("registration status = %d: %s", registration.Code, registration.Body.String())
+	}
+	var registered map[string]any
+	decodeResponse(t, registration, &registered)
+	if got := registered["scope"]; got != "read" {
+		t.Fatalf("default registered scope = %#v, want read", got)
+	}
+}
+
 func TestHTTPAuthorizationCodeRefreshAndRevokeFlow(t *testing.T) {
 	server, _ := newServer(t)
 	mux := http.NewServeMux()
