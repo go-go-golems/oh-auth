@@ -70,7 +70,18 @@ func (e *Engine[A]) RegisterClient(ctx context.Context, in RegisterClientInput) 
 		seen[redirect] = struct{}{}
 		redirects = append(redirects, redirect)
 	}
-	scopes, err := NewScopeSet(stringsToScopes(in.RequestedScopes)...)
+	var scopes ScopeSet
+	var err error
+	if len(in.RequestedScopes) == 0 {
+		// RFC 7591 makes scope optional. Clients such as ChatGPT omit it during
+		// dynamic registration and request advertised scopes during authorization.
+		// The client ceiling therefore defaults to the server-supported set;
+		// resource policy, principal capabilities, and consent still narrow the
+		// scopes that can be granted.
+		scopes = e.config.SupportedScopes
+	} else {
+		scopes, err = NewScopeSet(stringsToScopes(in.RequestedScopes)...)
+	}
 	if err != nil || len(scopes.Values()) > e.config.StatePolicy.Registration.MaxScopeCount || !scopes.IsSubsetOf(e.config.SupportedScopes) {
 		return RegisterClientResult{}, oauthError(ErrorInvalidScope, "requested scopes are invalid", 400, err)
 	}
