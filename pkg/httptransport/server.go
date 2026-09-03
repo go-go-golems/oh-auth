@@ -18,8 +18,9 @@ import (
 )
 
 type Config[A any] struct {
-	Engine *oauthserver.Engine[A]
-	Login  oauthserver.LoginStarter
+	Engine   *oauthserver.Engine[A]
+	Login    oauthserver.LoginStarter
+	Observer RequestObserver
 }
 
 type Server[A any] struct {
@@ -29,6 +30,7 @@ type Server[A any] struct {
 	tokens          oauthserver.TokenService[A]
 	login           oauthserver.LoginStarter
 	policy          oauthserver.HTTPPolicy
+	observer        RequestObserver
 	consentTemplate *template.Template
 }
 
@@ -36,17 +38,23 @@ func New[A any](config Config[A]) (*Server[A], error) {
 	if config.Engine == nil {
 		return nil, errors.New("HTTP transport configuration is incomplete")
 	}
-	return &Server[A]{engine: config.Engine, issuer: config.Engine.Issuer(), resources: config.Engine.Resources(), tokens: config.Engine.Tokens(), login: config.Login, policy: config.Engine.HTTPPolicy(), consentTemplate: template.Must(template.New("consent").Parse(consentPage))}, nil
+	return &Server[A]{engine: config.Engine, issuer: config.Engine.Issuer(), resources: config.Engine.Resources(), tokens: config.Engine.Tokens(), login: config.Login, policy: config.Engine.HTTPPolicy(), observer: config.Observer, consentTemplate: template.Must(template.New("consent").Parse(consentPage))}, nil
+}
+
+func (s *Server[A]) correlated(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		Correlation(handler, s.observer).ServeHTTP(w, r)
+	}
 }
 
 func (s *Server[A]) Mount(mux *http.ServeMux) {
-	mux.HandleFunc("/.well-known/oauth-authorization-server", s.metadata)
-	mux.HandleFunc("/jwks.json", s.jwks)
-	mux.HandleFunc("/oauth/register", s.register)
-	mux.HandleFunc("/oauth/authorize", s.authorize)
-	mux.HandleFunc("/oauth/consent", s.consent)
-	mux.HandleFunc("/oauth/token", s.token)
-	mux.HandleFunc("/oauth/revoke", s.revoke)
+	mux.HandleFunc("/.well-known/oauth-authorization-server", s.correlated(s.metadata))
+	mux.HandleFunc("/jwks.json", s.correlated(s.jwks))
+	mux.HandleFunc("/oauth/register", s.correlated(s.register))
+	mux.HandleFunc("/oauth/authorize", s.correlated(s.authorize))
+	mux.HandleFunc("/oauth/consent", s.correlated(s.consent))
+	mux.HandleFunc("/oauth/token", s.correlated(s.token))
+	mux.HandleFunc("/oauth/revoke", s.correlated(s.revoke))
 }
 
 type authorizationMetadata struct {

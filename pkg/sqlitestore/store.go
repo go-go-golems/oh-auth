@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/go-go-golems/oh-auth/pkg/oauthserver"
@@ -15,6 +16,7 @@ import (
 
 type Store[A any] struct {
 	db    *sql.DB
+	path  string
 	codec oauthserver.PrincipalCodec[A]
 	clock oauthserver.Clock
 }
@@ -46,7 +48,7 @@ func Open[A any](ctx context.Context, path string, codec oauthserver.PrincipalCo
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
 	db.SetMaxOpenConns(1)
-	store := &Store[A]{db: db, codec: codec, clock: clock}
+	store := &Store[A]{db: db, path: path, codec: codec, clock: clock}
 	if err := store.configure(ctx); err != nil {
 		_ = db.Close()
 		return nil, err
@@ -55,6 +57,68 @@ func Open[A any](ctx context.Context, path string, codec oauthserver.PrincipalCo
 }
 
 func (s *Store[A]) Close() error { return s.db.Close() }
+
+// Diagnostics is a startup and health snapshot of the OAuth SQLite state.
+// It contains structural facts only: no credentials, payloads, or rows.
+type Diagnostics struct {
+	Path             string
+	SQLiteVersion    string
+	SchemaVersion    int
+	JournalMode      string
+	BusyTimeoutMs    int64
+	ForeignKeys      bool
+	Counts           oauthserver.StateCounts
+	DatabaseBytes    int64
+	WALBytes         int64
+	WriteProbeOK     bool
+	WriteProbeDetail string
+}
+
+// Diagnostics collects the safe structural state of the store: schema and
+// SQLite runtime settings, object counts, database and WAL file sizes, and a
+// non-destructive write probe (BEGIN IMMEDIATE ... ROLLBACK).
+func (s *Store[A]) Diagnostics(ctx context.Context) (Diagnostics, error) {
+	diagnostics := Diagnostics{Path: s.path}
+	if err := s.db.QueryRowContext(ctx, "SELECT sqlite_version()").Scan(&diagnostics.SQLiteVersion); err != nil {
+		return diagnostics, fmt.Errorf("read sqlite version: %w", err)
+	}
+	if err := s.db.QueryRowContext(ctx, "SELECT MAX(version) FROM oauth_schema_version").Scan(&diagnostics.SchemaVersion); err != nil {
+		return diagnostics, fmt.Errorf("read sqlite schema version: %w", err)
+	}
+	if err := s.db.QueryRowContext(ctx, "PRAGMA journal_mode").Scan(&diagnostics.JournalMode); err != nil {
+		return diagnostics, fmt.Errorf("read sqlite journal mode: %w", err)
+	}
+	if err := s.db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&diagnostics.ForeignKeys); err != nil {
+		return diagnostics, fmt.Errorf("read sqlite foreign keys: %w", err)
+	}
+	if err := s.db.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&diagnostics.BusyTimeoutMs); err != nil {
+		return diagnostics, fmt.Errorf("read sqlite busy timeout: %w", err)
+	}
+	counts, err := s.Counts(ctx)
+	if err != nil {
+		return diagnostics, fmt.Errorf("read sqlite counts: %w", err)
+	}
+	diagnostics.Counts = counts
+	if info, err := os.Stat(s.path); err == nil {
+		diagnostics.DatabaseBytes = info.Size()
+		if wal, err := os.Stat(s.path + "-wal"); err == nil {
+			diagnostics.WALBytes = wal.Size()
+		}
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		diagnostics.WriteProbeDetail = err.Error()
+		return diagnostics, nil
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE oauth_schema_version SET version = version"); err != nil {
+		diagnostics.WriteProbeDetail = err.Error()
+		_ = tx.Rollback()
+		return diagnostics, nil
+	}
+	_ = tx.Rollback()
+	diagnostics.WriteProbeOK = true
+	return diagnostics, nil
+}
 
 func (s *Store[A]) configure(ctx context.Context) error {
 	for _, statement := range []string{"PRAGMA foreign_keys = ON", "PRAGMA journal_mode = WAL", "PRAGMA busy_timeout = 5000"} {
