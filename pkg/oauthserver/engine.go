@@ -160,7 +160,7 @@ func (e *Engine[A]) BeginAuthorization(ctx context.Context, in BeginAuthorizatio
 	}
 	client, err := e.deps.Store.GetClient(ctx, clientID)
 	if err != nil {
-		e.auditDenied(ctx, "begin_authorization", storeReasonCode(err), Principal[A]{}, clientID, "", ScopeSet{})
+		e.auditDenied(ctx, "begin_authorization", storeReasonCode(err), Principal[A]{}, clientID, resourceID, ScopeSet{})
 		return BeginAuthorizationResult{}, invalidArgument("client is invalid", err)
 	}
 	if !containsRedirect(client.RedirectURIs, redirect) {
